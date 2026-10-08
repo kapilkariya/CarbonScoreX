@@ -19,8 +19,9 @@ services:
 
   ml-service:
     build:
-      context: ./ml-service
+      context: .
       dockerfile: Dockerfile
+      target: ml-service
     image: carbonscorex-ml:alpine
     environment:
       PYTHONUNBUFFERED: "1"
@@ -29,8 +30,9 @@ services:
 
   backend:
     build:
-      context: ./backend
+      context: .
       dockerfile: Dockerfile
+      target: backend
     image: carbonscorex-backend:alpine
     environment:
       NODE_ENV: development
@@ -51,8 +53,9 @@ services:
 
   frontend:
     build:
-      context: ./frontend
+      context: .
       dockerfile: Dockerfile
+      target: frontend
     image: carbonscorex-frontend:alpine
     environment:
       REACT_APP_API_URL: http://localhost:5000/api
