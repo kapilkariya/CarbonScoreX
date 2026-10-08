@@ -1,0 +1,69 @@
+services:
+  database:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: carbonscorex
+      POSTGRES_USER: carbonscorex
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-carbonscorex}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./backend/migrations/001_init_schema.sql:/docker-entrypoint-initdb.d/001_init_schema.sql:ro
+      - ./backend/migrations/002_credit_listings.sql:/docker-entrypoint-initdb.d/002_credit_listings.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "5432:5432"
+
+  ml-service:
+    build:
+      context: ./ml-service
+      dockerfile: Dockerfile
+    image: carbonscorex-ml:alpine
+    environment:
+      PYTHONUNBUFFERED: "1"
+    ports:
+      - "8000:8000"
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: carbonscorex-backend:alpine
+    environment:
+      NODE_ENV: development
+      PORT: 5000
+      DATABASE_URL: postgres://carbonscorex:${POSTGRES_PASSWORD:-carbonscorex}@database:5432/carbonscorex
+      JWT_SECRET: ${JWT_SECRET:-change-this-secret-before-deploying}
+      FRONTEND_URL: http://localhost:3000
+      ML_SERVICE_URL: http://ml-service:8000
+    depends_on:
+      database:
+        condition: service_healthy
+      ml-service:
+        condition: service_started
+    ports:
+      - "5000:5000"
+    volumes:
+      - certificates:/app/certificates
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: carbonscorex-frontend:alpine
+    environment:
+      REACT_APP_API_URL: http://localhost:5000/api
+      HOST: 0.0.0.0
+      PORT: 3000
+      WATCHPACK_POLLING: "true"
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres-data:
+  certificates:
