@@ -6,6 +6,24 @@ const { query } = require('../config/database');
 const axios = require('axios');
 const certificateGenerator = require('../utils/pdfGenerator');
 const geminiService = require('../services/geminiService');
+const assessmentReportGenerator = require('../utils/assessmentReportGenerator');
+const recommendationService = require('../services/recommendationService');
+const { randomUUID } = require('crypto');
+
+const recommendationHistoryFields = [
+    'reporting_period_start', 'reporting_period_end', 'energy_consumption', 'electricity_consumption_kwh',
+    'renewable_energy_pct', 'emissions_co2', 'scope1_tco2e', 'scope2_tco2e', 'scope3_total_tco2e',
+    'waste_recycled_pct', 'water_usage', 'production_volume', 'employee_count'
+];
+function projectRecommendationHistory(rows) {
+    return rows.map((row) => {
+        const data = typeof row.data === 'string' ? JSON.parse(row.data) : row.data || {};
+        return {
+            submitted_at: row.submitted_at,
+            ...Object.fromEntries(recommendationHistoryFields.map((field) => [field, data[field] ?? null]))
+        };
+    });
+}
 
 class CompanyController {
     constructor() {
@@ -14,6 +32,9 @@ class CompanyController {
         this.getScore = this.getScore.bind(this);
         this.getScoreHistory = this.getScoreHistory.bind(this);
         this.getRecommendations = this.getRecommendations.bind(this);
+        this.getNetZeroPathway = this.getNetZeroPathway.bind(this);
+        this.updateRecommendationStatus = this.updateRecommendationStatus.bind(this);
+        this.downloadAssessmentReport = this.downloadAssessmentReport.bind(this);
     }
 
     /**
@@ -55,7 +76,7 @@ class CompanyController {
             if (isNaN(companyId)) {
                 return res.status(400).json({ error: 'Invalid company ID' });
             }
-            const data = req.body;
+            const data = { ...req.body };
 
             // Validate that user owns this company
             if (req.user.companyId !== companyId) {
@@ -63,6 +84,34 @@ class CompanyController {
                     error: 'Not authorized to submit data for this company'
                 });
             }
+
+            const optionalEmissionFields = [
+                'scope1_tco2e', 'scope1_stationary_combustion_tco2e', 'scope1_mobile_combustion_tco2e',
+                'scope1_process_tco2e', 'scope1_fugitive_tco2e', 'electricity_consumption_kwh',
+                'electricity_grid_factor_kg_kwh', 'scope3_total_tco2e',
+                'scope3_purchased_goods_tco2e', 'scope3_transport_tco2e', 'scope3_waste_tco2e',
+                'scope3_business_travel_tco2e', 'scope3_other_tco2e'
+            ];
+            for (const field of optionalEmissionFields) {
+                if (data[field] === '' || data[field] === null || data[field] === undefined) {
+                    delete data[field];
+                    continue;
+                }
+                const value = Number(data[field]);
+                if (!Number.isFinite(value) || value < 0) {
+                    return res.status(400).json({ error: `${field} must be a non-negative number` });
+                }
+                data[field] = value;
+            }
+            if (data.reporting_period_start || data.reporting_period_end) {
+                const start = new Date(`${data.reporting_period_start}T00:00:00Z`);
+                const end = new Date(`${data.reporting_period_end}T00:00:00Z`);
+                if (!data.reporting_period_start || !data.reporting_period_end || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) {
+                    return res.status(400).json({ error: 'A valid reporting period start and end are required, with start on or before end' });
+                }
+            }
+            if (typeof data.electricity_factor_source === 'string') data.electricity_factor_source = data.electricity_factor_source.trim().slice(0, 500);
+            if (typeof data.data_quality_notes === 'string') data.data_quality_notes = data.data_quality_notes.trim().slice(0, 2000);
 
             // Store the data record
             const dataResult = await query(
@@ -297,15 +346,21 @@ class CompanyController {
             if (isNaN(companyId)) {
                 return res.status(400).json({ error: 'Invalid company ID' });
             }
+            if (req.user.userType !== 'government' && req.user.companyId !== companyId) {
+                return res.status(403).json({ error: 'Not authorized to access this company recommendations' });
+            }
 
             // Get company's latest score and data
             const scoreResult = await query(
-                `SELECT cs.score, cs.score_category, cdr.data
-                 FROM carbon_scores cs
-                 JOIN company_data_records cdr ON cs.data_record_id = cdr.id
-                 WHERE cs.company_id = $1
-                 ORDER BY cs.scored_at DESC
-                 LIMIT 1`,
+                `SELECT cs.score, cs.score_category, latest.data
+                 FROM LATERAL (
+                   SELECT id, data FROM company_data_records
+                   WHERE company_id = $1 ORDER BY submitted_at DESC, id DESC LIMIT 1
+                 ) latest
+                 LEFT JOIN LATERAL (
+                   SELECT score, score_category FROM carbon_scores
+                   WHERE company_id = $1 AND data_record_id = latest.id ORDER BY scored_at DESC LIMIT 1
+                 ) cs ON true`,
                 [companyId]
             );
 
@@ -317,29 +372,157 @@ class CompanyController {
 
             const { score, score_category, data } = scoreResult.rows[0];
             const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
+            const historyResult = await query(
+                `SELECT data, submitted_at FROM company_data_records
+                 WHERE company_id = $1 ORDER BY submitted_at DESC, id DESC LIMIT 5`,
+                [companyId]
+            );
 
-            // Get AI recommendations
-            const recommendations = await geminiService.getRecommendations({
-                score: parseFloat(score),
+            const recommendations = await recommendationService.getRecommendations(companyId, {
+                score: score === null ? null : parseFloat(score),
                 score_category,
-                ...parsedData
-            });
+                ...parsedData,
+                history: projectRecommendationHistory(historyResult.rows)
+            }, { forceRefresh: req.method === 'POST' });
 
+            res.setHeader('Cache-Control', 'no-store');
             res.json({
                 success: true,
                 recommendations,
+                generation: recommendations.some((item) => item.source === 'ai')
+                    ? 'AI-assisted; validated against current data'
+                    : req.method === 'POST'
+                        ? recommendations.length
+                            ? 'AI generation was unavailable or invalid; validated rule-based recommendations were saved.'
+                            : 'Current metrics produced no active recommendations; previously dismissed or completed actions remain in their recorded status.'
+                        : 'Data-driven rules (AI unavailable or no new candidates)',
+                refreshed: req.method === 'POST',
                 basedOn: {
-                    score: parseFloat(score),
+                    score: score === null ? null : parseFloat(score),
                     category: score_category
                 }
             });
 
         } catch (error) {
-            console.error('Get recommendations error:', error);
+            const requestId = randomUUID();
+            console.error('Get recommendations error:', {
+                requestId,
+                companyId: Number.parseInt(req.params.id, 10) || null,
+                code: error.code || error.name || 'UNKNOWN_ERROR',
+                message: error.message,
+                stack: error.stack
+            });
             res.status(500).json({
                 error: 'Failed to get recommendations',
-                details: error.message
+                requestId
             });
+        }
+    }
+
+    async getNetZeroPathway(req, res) {
+        const companyId = Number.parseInt(req.params.id, 10);
+        if (!Number.isInteger(companyId)) return res.status(400).json({ error: 'Invalid company ID' });
+        if (req.user.userType !== 'government' && req.user.companyId !== companyId) return res.status(403).json({ error: 'Not authorized to access this company pathway' });
+        try {
+            const historyResult = await query(
+                `SELECT data, submitted_at FROM company_data_records
+                 WHERE company_id = $1 ORDER BY submitted_at ASC, id ASC`,
+                [companyId]
+            );
+            if (!historyResult.rows.length) return res.status(404).json({ error: 'Submit environmental data to establish a baseline.' });
+            const assessment = assessmentReportGenerator.buildAssessment({}, historyResult.rows);
+            const pathway = assessmentReportGenerator.buildNetZeroPathway(
+                assessment, req.query.targetYear, req.query.annualReductionPct
+            );
+            res.setHeader('Cache-Control', 'no-store');
+            return res.json({ success: true, pathway });
+        } catch (error) {
+            console.error('Net Zero pathway calculation error:', error);
+            return res.status(500).json({ error: 'Failed to calculate Net Zero pathway' });
+        }
+    }
+
+    async updateRecommendationStatus(req, res) {
+        const companyId = Number.parseInt(req.params.id, 10);
+        const recommendationId = Number.parseInt(req.params.recommendationId, 10);
+        const { status } = req.body || {};
+        if (!Number.isInteger(companyId) || !Number.isInteger(recommendationId)) return res.status(400).json({ error: 'Invalid company or recommendation ID' });
+        if (req.user.userType !== 'government' && req.user.companyId !== companyId) return res.status(403).json({ error: 'Not authorized to update this recommendation' });
+        if (!['accepted', 'dismissed', 'completed'].includes(status)) return res.status(400).json({ error: 'Status must be accepted, dismissed or completed' });
+        try {
+            const recommendation = await recommendationService.updateStatus(companyId, recommendationId, status);
+            if (!recommendation) return res.status(404).json({ error: 'Recommendation not found' });
+            res.json({ success: true, recommendation });
+        } catch (error) {
+            console.error('Update recommendation status error:', error);
+            res.status(500).json({ error: 'Failed to update recommendation status' });
+        }
+    }
+
+    /** Download a company-specific GHG assessment and Net Zero roadmap. */
+    async downloadAssessmentReport(req, res) {
+        try {
+            const companyId = Number.parseInt(req.params.id, 10);
+            if (!Number.isInteger(companyId)) {
+                return res.status(400).json({ error: 'Invalid company ID' });
+            }
+            if (req.user.userType !== 'government' && req.user.companyId !== companyId) {
+                return res.status(403).json({ error: 'Not authorized to access this company report' });
+            }
+
+            const result = await query(
+                `SELECT c.id AS company_id, c.company_name, c.industry,
+                        u.full_name, r.id AS record_id, r.data, r.submitted_at
+                 FROM companies c
+                 JOIN users u ON u.id = c.user_id
+                 JOIN LATERAL (
+                   SELECT id, data, submitted_at
+                   FROM company_data_records
+                   WHERE company_id = c.id
+                   ORDER BY submitted_at DESC, id DESC
+                   LIMIT 1
+                 ) r ON true
+                 WHERE c.id = $1`,
+                [companyId]
+            );
+            if (result.rows.length === 0) {
+                return res.status(404).json({ error: 'Submit environmental data before generating an assessment report' });
+            }
+
+            const historyResult = await query(
+                `SELECT data, submitted_at FROM company_data_records
+                 WHERE company_id = $1 ORDER BY submitted_at ASC, id ASC`,
+                [companyId]
+            );
+            const company = result.rows[0];
+            const assessment = assessmentReportGenerator.buildAssessment(company, historyResult.rows);
+            const recommendations = await recommendationService.getRecommendations(companyId, {
+                ...assessment.data,
+                scopes: assessment.scopes,
+                history: projectRecommendationHistory(historyResult.rows.slice(-5).reverse())
+            });
+            const aiPlan = await geminiService.getNetZeroPlan({ company, assessment, recommendations });
+            const pathway = assessmentReportGenerator.buildNetZeroPathway(
+                assessment, req.query.targetYear, req.query.annualReductionPct
+            );
+            aiPlan.priorities = recommendations.slice(0, 5).map((item) => `${item.priority} priority - ${item.title}: ${item.rationale} Action: ${item.action} KPI: ${item.kpi} Timeframe: ${item.timeframe}`);
+            aiPlan.roadmap = recommendations.slice(0, 5).map((item) => `${item.timeframe}: ${item.title} - ${item.action} Measure: ${item.kpi}`);
+            aiPlan.recommendations = recommendations;
+            aiPlan.recommendationSource = recommendations.some((item) => item.source === 'ai')
+                ? 'Recommendations are AI-assisted and validated against submitted data.'
+                : 'Recommendations use explicit data-driven rules because no new AI recommendations were available.';
+
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader('Content-Disposition', `attachment; filename="${assessmentReportGenerator.safeFileName(company.company_name)}-carbon-assessment.pdf"`);
+            res.setHeader('Cache-Control', 'no-store');
+            assessmentReportGenerator.generate(res, { company, assessment, aiPlan, pathway });
+        } catch (error) {
+            console.error('Assessment report error:', error);
+            if (!res.headersSent) {
+                res.status(500).json({ error: 'Failed to generate assessment report' });
+            } else {
+                res.destroy(error);
+            }
         }
     }
 

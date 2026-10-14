@@ -57,7 +57,15 @@ const api = {
   getScoreHistory: (companyId) =>
     apiClient.get(`/companies/${companyId}/score-history`),
   getRecommendations: (companyId) =>
-    apiClient.get(`/companies/${companyId}/recommendations`),
+    apiClient.get(`/companies/${companyId}/recommendations`, { timeout: 180000 }),
+  generateRecommendations: (companyId) =>
+    apiClient.post(`/companies/${companyId}/recommendations/generate`, {}, { timeout: 180000 }),
+    updateRecommendationStatus: (companyId, recommendationId, status) =>
+        apiClient.patch(`/companies/${companyId}/recommendations/${recommendationId}`, { status }),
+  downloadAssessmentReport: (companyId, params) =>
+    apiClient.get(`/companies/${companyId}/assessment-report`, { responseType: 'blob', params, timeout: 180000 }),
+  getNetZeroPathway: (companyId, params) =>
+    apiClient.get(`/companies/${companyId}/net-zero-pathway`, { params, timeout: 30000 }),
 
   // Certificates
   downloadCertificate: (certId) =>
