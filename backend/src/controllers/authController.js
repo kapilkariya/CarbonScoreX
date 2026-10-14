@@ -12,7 +12,8 @@ class AuthController {
    */
   async register(req, res) {
     try {
-      const { email, password, fullName, userType, companyName, industry, registrationNumber, address } = req.body;
+      const { password, fullName, userType, companyName, industry, registrationNumber, address } = req.body;
+      const email = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
 
       // Validate required fields
       if (!email || !password || !fullName || !userType) {
@@ -28,9 +29,13 @@ class AuthController {
         });
       }
 
+      if (userType === 'company' && !companyName?.trim()) {
+        return res.status(400).json({ error: 'Company name is required for company accounts' });
+      }
+
       // Check if email already exists
       const existingUser = await query(
-        'SELECT id FROM users WHERE email = $1',
+        'SELECT id FROM users WHERE LOWER(email) = $1',
         [email]
       );
 
@@ -126,7 +131,8 @@ class AuthController {
    */
   async login(req, res) {
     try {
-      const { email, password } = req.body;
+      const { password } = req.body;
+      const email = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
 
       // Validate input
       if (!email || !password) {
@@ -139,7 +145,7 @@ class AuthController {
                 c.id as company_id, c.company_name, c.industry
          FROM users u
          LEFT JOIN companies c ON u.id = c.user_id
-         WHERE u.email = $1`,
+         WHERE LOWER(u.email) = $1`,
         [email]
       );
 

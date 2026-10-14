@@ -15,7 +15,7 @@ export default function Login() {
     setLoading(true);
 
     try {
-      const response = await api.login({ email, password });
+      const response = await api.login({ email: email.trim().toLowerCase(), password });
       
       // Store token and user info
       localStorage.setItem('token', response.data.token);
@@ -54,15 +54,16 @@ export default function Login() {
             </div>
           )}
 
-          <div className="space-y-4">
+          <form className="space-y-4" onSubmit={handleLogin}>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Email Address
               </label>
               <input
                 type="email"
+                name="email"
                 value={email}
-                autoComplete='on'
+                autoComplete="email"
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="your@email.com"
@@ -76,6 +77,8 @@ export default function Login() {
               </label>
               <input
                 type="password"
+                name="password"
+                autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -85,13 +88,13 @@ export default function Login() {
             </div>
 
             <button
-              onClick={handleLogin}
+              type="submit"
               disabled={loading}
               className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:bg-blue-300"
             >
               {loading ? 'Signing in...' : 'Sign In'}
             </button>
-          </div>
+          </form>
 
           <div className="mt-6 text-center">
             <p className="text-gray-600 text-sm">

@@ -25,6 +25,11 @@ export default function Register() {
     });
   };
 
+  const selectUserType = (userType) => {
+    setFormData((current) => ({ ...current, userType }));
+    setError('');
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -34,10 +39,20 @@ export default function Register() {
       return;
     }
 
+    if (formData.userType === 'company' && !formData.companyName.trim()) {
+      setError('Company name is required for company accounts');
+      return;
+    }
+
     setLoading(true);
 
     try {
-      const response = await api.register(formData);
+      const response = await api.register({
+        ...formData,
+        email: formData.email.trim().toLowerCase(),
+        fullName: formData.fullName.trim(),
+        companyName: formData.companyName.trim(),
+      });
       
       // Store token and user info
       localStorage.setItem('token', response.data.token);
@@ -74,7 +89,7 @@ export default function Register() {
             </div>
           )}
 
-          <div className="space-y-6">
+          <form className="space-y-6" onSubmit={handleSubmit}>
             {/* User Type Selection */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -83,7 +98,7 @@ export default function Register() {
               <div className="grid grid-cols-2 gap-4">
                 <button
                   type="button"
-                  onClick={() => setFormData({...formData, userType: 'company'})}
+                  onClick={() => selectUserType('company')}
                   className={`p-4 border-2 rounded-lg ${
                     formData.userType === 'company'
                       ? 'border-blue-600 bg-blue-50'
@@ -95,7 +110,7 @@ export default function Register() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setFormData({...formData, userType: 'individual'})}
+                  onClick={() => selectUserType('individual')}
                   className={`p-4 border-2 rounded-lg ${
                     formData.userType === 'individual'
                       ? 'border-blue-600 bg-blue-50'
@@ -117,6 +132,7 @@ export default function Register() {
                 <input
                   type="email"
                   name="email"
+                  autoComplete="email"
                   value={formData.email}
                   onChange={handleChange}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -131,6 +147,7 @@ export default function Register() {
                 <input
                   type="text"
                   name="fullName"
+                  autoComplete="name"
                   value={formData.fullName}
                   onChange={handleChange}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -145,6 +162,7 @@ export default function Register() {
                 <input
                   type="password"
                   name="password"
+                  autoComplete="new-password"
                   value={formData.password}
                   onChange={handleChange}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -159,6 +177,7 @@ export default function Register() {
                 <input
                   type="password"
                   name="confirmPassword"
+                  autoComplete="new-password"
                   value={formData.confirmPassword}
                   onChange={handleChange}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -177,6 +196,7 @@ export default function Register() {
                   <input
                     type="text"
                     name="companyName"
+                    required
                     value={formData.companyName}
                     onChange={handleChange}
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -225,13 +245,13 @@ export default function Register() {
             )}
 
             <button
-              onClick={handleSubmit}
+              type="submit"
               disabled={loading}
               className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:bg-blue-300"
             >
               {loading ? 'Creating Account...' : 'Create Account'}
             </button>
-          </div>
+          </form>
 
           <div className="mt-6 text-center">
             <p className="text-gray-600 text-sm">
