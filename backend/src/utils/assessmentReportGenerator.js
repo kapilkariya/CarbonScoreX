@@ -149,6 +149,37 @@ function buildNetZeroPathway(assessment, targetYear, annualReductionPct) {
   };
 }
 
+/** Deterministic report planning text grounded in the saved assessment and actions. */
+function buildNetZeroPlan({ company = {}, assessment, recommendations = [] }) {
+  const scopes = assessment.scopes;
+  const gaps = [];
+  if (scopes.scope1 === null) gaps.push('Establish the Scope 1 baseline from documented direct-emission sources.');
+  if (scopes.scope2 === null) gaps.push('Collect purchased-electricity activity and a documented grid factor to calculate Scope 2.');
+  if (scopes.scope3 === null) gaps.push('Screen material value-chain categories and quantify Scope 3.');
+  const executiveSummary = scopes.complete
+    ? `${company.company_name || 'The company'} has a complete preliminary scope inventory of ${scopes.total.toFixed(2)} tCO2e based on submitted values. The inventory and any pathway are planning inputs, not independently verified results.`
+    : `${company.company_name || 'The company'} has an incomplete scope inventory. ${scopes.knownCount} of 3 scopes are quantified; missing scopes are excluded rather than treated as zero. Complete the data gaps before setting a quantified pathway.`;
+  const priorities = recommendations.slice(0, 5).map((item) => `${item.priority || 'Medium'} priority — ${item.title}: ${item.action}`);
+  if (!priorities.length) priorities.push(...gaps);
+  if (!priorities.length) priorities.push('Review submitted activity data and retain source records for each reporting period.');
+  const roadmap = [
+    ...gaps,
+    ...recommendations.slice(0, Math.max(0, 5 - gaps.length)).map((item) => `${item.timeframe || 'Ongoing'}: ${item.title}. Measure: ${item.kpi || 'Track the submitted metric against its documented baseline.'}`),
+    'Review the inventory, factor references, action owners and measured progress at the next reporting period.'
+  ].slice(0, 5);
+  if (!roadmap.length) roadmap.push('Review the inventory, factor references, action owners and measured progress at the next reporting period.');
+  return {
+    executiveSummary,
+    priorities,
+    roadmap,
+    analysisSource: 'Deterministic CarbonScoreX guidance based on submitted assessment data',
+    recommendationSource: recommendations.some((item) => item.source === 'classifier')
+      ? 'The classifier selected recommendation categories; detailed actions and evidence use backend rules and submitted data.'
+      : 'Recommendations use deterministic backend rules and submitted data.',
+    recommendations
+  };
+}
+
 const safeFileName = (value) => String(value || 'company').normalize('NFKD')
   .replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase() || 'company';
 
@@ -516,4 +547,4 @@ function generate(response, { company, assessment, aiPlan, pathway }) {
   doc.end();
 }
 
-module.exports = { buildAssessment, buildNetZeroPathway, generate, safeFileName };
+module.exports = { buildAssessment, buildNetZeroPathway, buildNetZeroPlan, generate, safeFileName };

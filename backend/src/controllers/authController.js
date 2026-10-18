@@ -226,7 +226,7 @@ class AuthController {
       let latestScore = null;
       if (user.company_id) {
         const scoreResult = await query(
-          `SELECT score, score_category, scored_at
+          `SELECT score, score_category, explanation, scored_at
            FROM carbon_scores
            WHERE company_id = $1
            ORDER BY scored_at DESC
@@ -237,6 +237,8 @@ class AuthController {
         if (scoreResult.rows.length > 0) {
           latestScore = scoreResult.rows[0];
           latestScore.score = parseFloat(latestScore.score);
+          latestScore.scoring_method = latestScore.explanation?._provenance?.scoring_method || 'unknown';
+          latestScore.model_version = latestScore.explanation?._provenance?.model_version || 'unknown';
         }
       }
 

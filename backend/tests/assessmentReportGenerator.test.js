@@ -1,5 +1,5 @@
 const { PassThrough } = require('stream');
-const { buildAssessment, buildNetZeroPathway, generate } = require('../src/utils/assessmentReportGenerator');
+const { buildAssessment, buildNetZeroPathway, buildNetZeroPlan, generate } = require('../src/utils/assessmentReportGenerator');
 
 const completeRow = (year, scope1, scope3) => ({
   submitted_at: `${year}-12-31T00:00:00Z`,
@@ -26,6 +26,19 @@ test('does not invent a baseline when scopes are incomplete or target assumption
   expect(buildNetZeroPathway(incomplete, 2050, 4)).toMatchObject({ available: false, reason: expect.stringContaining('complete Scope 1') });
   const complete = buildAssessment({}, [completeRow(2025, 12, 6)]);
   expect(buildNetZeroPathway(complete, 2020, 4)).toMatchObject({ available: false, reason: expect.stringContaining('target year') });
+});
+
+test('builds deterministic report planning from scope gaps and saved recommendations', () => {
+  const assessment = buildAssessment({ company_name: 'Example Works' }, [{ submitted_at: '2025-12-31', data: { scope1_tco2e: 4 } }]);
+  const plan = buildNetZeroPlan({ company: { company_name: 'Example Works' }, assessment, recommendations: [{
+    title: 'Improve waste prevention and recovery', action: 'Measure major waste streams.', priority: 'Medium',
+    timeframe: '0-3 months', kpi: 'Track recycling rate.', source: 'classifier'
+  }] });
+  expect(plan.executiveSummary).toContain('incomplete scope inventory');
+  expect(plan.executiveSummary).toContain('missing scopes are excluded');
+  expect(plan.roadmap).toContain('Collect purchased-electricity activity and a documented grid factor to calculate Scope 2.');
+  expect(plan.recommendationSource).toContain('classifier selected recommendation categories');
+  expect(plan.recommendations).toHaveLength(1);
 });
 
 test('generates a readable PDF with the selected scenario and latest validated recommendations', async () => {

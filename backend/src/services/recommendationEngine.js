@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 
 function number(data, key) {
+  if (data[key] === null || data[key] === undefined || data[key] === '') return null;
   const value = Number(data[key]);
   return Number.isFinite(value) ? value : null;
 }
@@ -42,7 +43,7 @@ function reconcile(existing, candidates) {
     let status = old?.status || 'active';
     if (old && old.evidence_fingerprint !== evidenceFingerprint) status = 'active';
     else if (old?.status === 'superseded') status = 'active';
-    return { ...candidate, evidenceFingerprint, status, id: old?.id, isNew: !old, changed: !old || old.evidence_fingerprint !== evidenceFingerprint || old.status === 'superseded' };
+    return { ...candidate, evidenceFingerprint, status, id: old?.id, isNew: !old, changed: !old || old.evidence_fingerprint !== evidenceFingerprint || old.status === 'superseded' || old.generation_source === 'ai' };
   });
   return { current: next, removed: existing.filter((item) => !candidates.some((candidate) => candidate.key === item.recommendation_key) && item.status === 'active') };
 }

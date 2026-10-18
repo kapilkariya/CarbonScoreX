@@ -465,6 +465,9 @@ function CompanyDashboard() {
                                         }`}>
                                         {latestScore?.score_category || 'Not Scored'}
                                     </div>
+                                    {latestScore?.scoring_method === 'fallback' && <p className="mt-2 text-xs text-amber-700">Rule-based fallback score; the carbon-score model is unavailable.</p>}
+                                    {latestScore?.scoring_method === 'model' && <p className="mt-2 text-xs text-gray-500">Carbon-score model: {latestScore.model_version}</p>}
+                                    {latestScore?.scoring_method === 'unknown' && latestScore?.score && <p className="mt-2 text-xs text-gray-500">Scoring method was not recorded for this earlier result.</p>}
                                 </div>
 
                                 <div className="text-center">
@@ -543,7 +546,7 @@ function CompanyDashboard() {
                                                         <span className="md:col-span-3"><strong>Measure:</strong> {rec.kpi || 'Track the relevant submitted metric against a documented baseline.'}</span>
                                                     </div>
                                                     <div className="mt-2 flex flex-wrap items-center gap-2">
-                                                        <span className="text-xs text-gray-500">{rec.source === 'ai' ? 'AI-assisted' : 'Data-driven rule'} · {rec.status}</span>
+                                                        <span className="text-xs text-gray-500">{rec.source === 'classifier' ? 'Classifier-selected category · data-grounded details' : 'Data-driven rule'} · {rec.status}</span>
                                                         {rec.status === 'active' && <>
                                                             <button onClick={() => updateRecommendation(rec.id, 'accepted')} className="rounded border border-green-600 px-2 py-1 text-xs text-green-700">Accept</button>
                                                             <button onClick={() => updateRecommendation(rec.id, 'dismissed')} className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-600">Dismiss</button>

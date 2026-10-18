@@ -9,11 +9,12 @@ from typing import Dict, Any, Optional
 import uvicorn
 
 try:
-    from inference import CarbonScorePredictor
+    from inference import CarbonScorePredictor, RecommendationPredictor
     INFERENCE_AVAILABLE = True
 except ImportError:
     INFERENCE_AVAILABLE = False
     print("Warning: Could not import inference module. Using fallback.")
+    RecommendationPredictor = None
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -96,6 +97,10 @@ except Exception as e:
     
     predictor = FallbackPredictor()
     MODEL_LOADED = False
+
+# Recommendations are isolated from the carbon-score predictor. Loading or
+# running this classifier must never affect the existing score endpoints.
+recommendation_predictor = RecommendationPredictor() if RecommendationPredictor else None
 
 # Request/Response models
 class CompanyDataInput(BaseModel):
@@ -237,6 +242,19 @@ async def model_info():
             "model_type": "fallback",
             "message": "Using rule-based fallback scoring"
         }
+
+@app.post("/recommendations/predict")
+async def predict_recommendations(company_data: Dict[str, Any]):
+    """Predict action labels and report deterministic scope data gaps."""
+    if recommendation_predictor is None:
+        return {
+            'model_version': 'carbonscorex_recommendation_model',
+            'status': 'fallback',
+            'recommendations': [],
+            'data_completeness_recommendations': RecommendationPredictor.completeness_recommendations(company_data) if RecommendationPredictor else [],
+            'message': 'Recommendation inference module unavailable.'
+        }
+    return recommendation_predictor.predict(company_data)
 
 # Run server
 if __name__ == "__main__":

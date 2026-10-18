@@ -6,7 +6,6 @@ jest.mock('../src/services/recommendationService', () => ({
 
 const { query } = require('../src/config/database');
 const recommendationService = require('../src/services/recommendationService');
-const geminiService = require('../src/services/geminiService');
 const assessmentReportGenerator = require('../src/utils/assessmentReportGenerator');
 const controller = require('../src/controllers/companyController');
 
@@ -49,16 +48,16 @@ test('successful request loads recent metrics and returns the existing API respo
   expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ success: true, recommendations, basedOn: { score: 71.2, category: 'Good' } }));
 });
 
-test('generation request forces AI regeneration using the latest company submission', async () => {
+test('generation request forces classifier evaluation using the latest company submission', async () => {
   query
     .mockResolvedValueOnce({ rows: [{ score: '71.2', score_category: 'Good', data: { renewable_energy_pct: 35 } }] })
     .mockResolvedValueOnce({ rows: [{ data: { renewable_energy_pct: 35 }, submitted_at: '2026-01-01T00:00:00Z' }] });
-  recommendationService.getRecommendations.mockResolvedValueOnce([{ id: 4, title: 'Review renewable supply', source: 'ai' }]);
+  recommendationService.getRecommendations.mockResolvedValueOnce([{ id: 4, title: 'Review renewable supply', source: 'classifier' }]);
   const req = { ...request(), method: 'POST' };
   const res = response();
   await controller.getRecommendations(req, res);
   expect(recommendationService.getRecommendations).toHaveBeenCalledWith(1, expect.objectContaining({ renewable_energy_pct: 35 }), { forceRefresh: true });
-  expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ refreshed: true, generation: 'AI-assisted; validated against current data' }));
+  expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ refreshed: true, generation: expect.stringContaining('Classifier-selected categories') }));
 });
 
 test('Net Zero pathway endpoint returns scenario from company inventory history and blocks another company', async () => {
@@ -82,29 +81,25 @@ test('PDF download uses current inventory, persisted recommendations, and select
     .mockResolvedValueOnce({ rows: [{ submitted_at: '2025-12-31', data: { reporting_period_start: '2025-01-01', reporting_period_end: '2025-12-31', scope1_tco2e: 12, electricity_consumption_kwh: 1000, electricity_grid_factor_kg_kwh: 0.5, scope3_total_tco2e: 6 } }] });
   const recommendations = [{ id: 4, title: 'Review energy use', rationale: 'Measured energy is available.', action: 'Review major loads.', priority: 'High', kpi: 'Energy consumption', timeframe: '0-3 months', evidence: { energy: 4300 }, source: 'ai', status: 'active' }];
   recommendationService.getRecommendations.mockResolvedValueOnce(recommendations);
-  jest.spyOn(geminiService, 'getNetZeroPlan').mockResolvedValueOnce({ executiveSummary: 'Current inventory is complete.', analysisSource: 'Test' });
   const generate = jest.spyOn(assessmentReportGenerator, 'generate').mockImplementation(() => {});
   const res = response();
   await controller.downloadAssessmentReport({ ...request(), query: { targetYear: '2050', annualReductionPct: '4' } }, res);
   expect(recommendationService.getRecommendations).toHaveBeenCalledWith(1, expect.objectContaining({ history: expect.any(Array) }));
   expect(res.setHeader).toHaveBeenCalledWith('Cache-Control', 'no-store');
   expect(generate.mock.calls[0][1].aiPlan.recommendations).toBe(recommendations);
+  expect(generate.mock.calls[0][1].aiPlan.analysisSource).toContain('Deterministic CarbonScoreX guidance');
   expect(generate.mock.calls[0][1].pathway).toMatchObject({ available: true, baselineYear: 2025, targetYear: 2050 });
   generate.mockRestore();
-  geminiService.getNetZeroPlan.mockRestore();
 });
 
-test('PDF endpoint reports missing inventory data without attempting AI or PDF generation', async () => {
+test('PDF endpoint reports missing inventory data without attempting PDF generation', async () => {
   query.mockResolvedValueOnce({ rows: [] });
-  const plan = jest.spyOn(geminiService, 'getNetZeroPlan');
   const generate = jest.spyOn(assessmentReportGenerator, 'generate');
   const res = response();
   await controller.downloadAssessmentReport({ ...request(), query: {} }, res);
   expect(res.status).toHaveBeenCalledWith(404);
   expect(res.json).toHaveBeenCalledWith({ error: 'Submit environmental data before generating an assessment report' });
-  expect(plan).not.toHaveBeenCalled();
   expect(generate).not.toHaveBeenCalled();
-  plan.mockRestore();
   generate.mockRestore();
 });
 

@@ -5,7 +5,6 @@
 const { query } = require('../config/database');
 const axios = require('axios');
 const certificateGenerator = require('../utils/pdfGenerator');
-const geminiService = require('../services/geminiService');
 const assessmentReportGenerator = require('../utils/assessmentReportGenerator');
 const recommendationService = require('../services/recommendationService');
 const { randomUUID } = require('crypto');
@@ -153,13 +152,21 @@ class CompanyController {
 
             // Determine score category
             const scoreCategory = this.getScoreCategory(mlScore.score);
+            const modelVersion = mlScore.model_version || 'unknown';
+            const scoringMethod = String(modelVersion).toLowerCase().includes('fallback') || modelVersion === 'fallback_v1'
+                ? 'fallback'
+                : 'model';
+            const scoreExplanation = {
+                ...(mlScore.explanation || {}),
+                _provenance: { model_version: modelVersion, scoring_method: scoringMethod }
+            };
 
             // Store the carbon score
             const scoreResult = await query(
                 `INSERT INTO carbon_scores (company_id, score, score_category, explanation, data_record_id)
          VALUES ($1, $2, $3, $4, $5)
          RETURNING id, score, score_category, scored_at`,
-                [companyId, mlScore.score, scoreCategory, JSON.stringify(mlScore.explanation || {}), dataRecord.id]
+                [companyId, mlScore.score, scoreCategory, JSON.stringify(scoreExplanation), dataRecord.id]
             );
 
             const carbonScore = scoreResult.rows[0];
@@ -220,7 +227,9 @@ class CompanyController {
                 global.broadcastUpdate(companyId, 'score_updated', {
                     score: parseFloat(carbonScore.score),
                     category: carbonScore.score_category,
-                    scoredAt: carbonScore.scored_at
+                    scoredAt: carbonScore.scored_at,
+                    scoringMethod,
+                    modelVersion
                 });
             }
 
@@ -234,7 +243,9 @@ class CompanyController {
                     id: carbonScore.id,
                     score: parseFloat(carbonScore.score),
                     category: carbonScore.score_category,
-                    scoredAt: carbonScore.scored_at
+                    scoredAt: carbonScore.scored_at,
+                    scoringMethod,
+                    modelVersion
                 }
             });
 
@@ -282,6 +293,8 @@ class CompanyController {
                     value: parseFloat(score.score),
                     category: score.score_category,
                     explanation: score.explanation,
+                    scoringMethod: score.explanation?._provenance?.scoring_method || 'unknown',
+                    modelVersion: score.explanation?._provenance?.model_version || 'unknown',
                     scoredAt: score.scored_at
                 },
                 company: {
@@ -389,13 +402,11 @@ class CompanyController {
             res.json({
                 success: true,
                 recommendations,
-                generation: recommendations.some((item) => item.source === 'ai')
-                    ? 'AI-assisted; validated against current data'
-                    : req.method === 'POST'
-                        ? recommendations.length
-                            ? 'AI generation was unavailable or invalid; validated rule-based recommendations were saved.'
-                            : 'Current metrics produced no active recommendations; previously dismissed or completed actions remain in their recorded status.'
-                        : 'Data-driven rules (AI unavailable or no new candidates)',
+                generation: recommendations.some((item) => item.source === 'classifier')
+                    ? 'Classifier-selected categories with data-grounded actions and deterministic completeness rules.'
+                    : recommendations.length
+                        ? 'Deterministic recommendations based on the latest submitted assessment data.'
+                        : 'Current metrics produced no active recommendations; previously dismissed or completed actions remain in their recorded status.',
                 refreshed: req.method === 'POST',
                 basedOn: {
                     score: score === null ? null : parseFloat(score),
@@ -501,21 +512,15 @@ class CompanyController {
                 scopes: assessment.scopes,
                 history: projectRecommendationHistory(historyResult.rows.slice(-5).reverse())
             });
-            const aiPlan = await geminiService.getNetZeroPlan({ company, assessment, recommendations });
             const pathway = assessmentReportGenerator.buildNetZeroPathway(
                 assessment, req.query.targetYear, req.query.annualReductionPct
             );
-            aiPlan.priorities = recommendations.slice(0, 5).map((item) => `${item.priority} priority - ${item.title}: ${item.rationale} Action: ${item.action} KPI: ${item.kpi} Timeframe: ${item.timeframe}`);
-            aiPlan.roadmap = recommendations.slice(0, 5).map((item) => `${item.timeframe}: ${item.title} - ${item.action} Measure: ${item.kpi}`);
-            aiPlan.recommendations = recommendations;
-            aiPlan.recommendationSource = recommendations.some((item) => item.source === 'ai')
-                ? 'Recommendations are AI-assisted and validated against submitted data.'
-                : 'Recommendations use explicit data-driven rules because no new AI recommendations were available.';
+            const plan = assessmentReportGenerator.buildNetZeroPlan({ company, assessment, recommendations });
 
             res.setHeader('Content-Type', 'application/pdf');
             res.setHeader('Content-Disposition', `attachment; filename="${assessmentReportGenerator.safeFileName(company.company_name)}-carbon-assessment.pdf"`);
             res.setHeader('Cache-Control', 'no-store');
-            assessmentReportGenerator.generate(res, { company, assessment, aiPlan, pathway });
+            assessmentReportGenerator.generate(res, { company, assessment, aiPlan: plan, pathway });
         } catch (error) {
             console.error('Assessment report error:', error);
             if (!res.headersSent) {

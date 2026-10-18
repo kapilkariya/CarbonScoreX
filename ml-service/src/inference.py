@@ -3,9 +3,108 @@ Inference module for CarbonScoreX
 Loads trained model and generates predictions with explanations
 """
 import os
+from pathlib import Path
 import joblib
 import numpy as np
 from typing import Dict, Any
+
+
+class RecommendationPredictor:
+    """Classifier for operational actions; scope completeness stays rule based.
+
+    API-to-model feature aliases are explicit in FEATURE_INPUTS. Missing values
+    are represented as NaN for the fitted median imputer, never as zero. Scope
+    completeness is evaluated separately because missing-scope labels were not
+    part of classifier training.
+    """
+    MODEL_VERSION = "carbonscorex_recommendation_model"
+    FEATURE_INPUTS = {
+        'renewable_energy_usage_pct': ('renewable_energy_usage_pct', 'renewable_energy_pct', 'renewable_pct'),
+        'waste_recycling_rate_pct': ('waste_recycling_rate_pct', 'waste_recycled_pct', 'recycling_pct'),
+        'energy_consumption_kwh': ('energy_consumption_kwh', 'energy_consumption', 'energy_usage'),
+        'co2_emissions_tons': ('co2_emissions_tons', 'emissions_co2', 'co2_emissions'),
+        'water_usage_liters': ('water_usage_liters', 'water_usage', 'water_consumption'),
+        'employee_count': ('employee_count', 'employees', 'workforce'),
+        'production_volume': ('production_volume', 'output', 'production'),
+        'scope1_direct_emissions_tco2e': ('scope1_direct_emissions_tco2e', 'scope1_tco2e'),
+        'scope1_stationary_fuel_combustion_tco2e': ('scope1_stationary_fuel_combustion_tco2e', 'scope1_stationary_combustion_tco2e'),
+        'scope1_mobile_combustion_tco2e': ('scope1_mobile_combustion_tco2e',),
+        'scope1_process_emissions_tco2e': ('scope1_process_emissions_tco2e', 'scope1_process_tco2e'),
+        'scope1_fugitive_refrigerant_emissions_tco2e': ('scope1_fugitive_refrigerant_emissions_tco2e', 'scope1_fugitive_tco2e'),
+        'purchased_electricity_kwh': ('purchased_electricity_kwh', 'electricity_consumption_kwh'),
+        'electricity_grid_factor_kgco2e_per_kwh': ('electricity_grid_factor_kgco2e_per_kwh', 'electricity_grid_factor_kg_kwh'),
+        'scope3_reported_total_tco2e': ('scope3_reported_total_tco2e', 'scope3_total_tco2e'),
+        'scope3_purchased_goods_services_tco2e': ('scope3_purchased_goods_services_tco2e', 'scope3_purchased_goods_tco2e'),
+        'scope3_upstream_transportation_tco2e': ('scope3_upstream_transportation_tco2e', 'scope3_transport_tco2e'),
+        'scope3_waste_generated_operations_tco2e': ('scope3_waste_generated_operations_tco2e', 'scope3_waste_tco2e'),
+        'scope3_business_travel_tco2e': ('scope3_business_travel_tco2e',),
+        'scope3_other_value_chain_sources_tco2e': ('scope3_other_value_chain_sources_tco2e', 'scope3_other_tco2e'),
+    }
+
+    def __init__(self, model_path=None):
+        self.model_path = Path(model_path) if model_path else Path(__file__).resolve().parents[1] / 'models' / 'carbonscorex_recommendation_model.joblib'
+        self.model = None
+        self.feature_cols = []
+        self.recommendation_classes = []
+        self.load_error = None
+        try:
+            artifact = joblib.load(self.model_path)
+            self.model = artifact['model']
+            self.feature_cols = list(artifact['feature_cols'])
+            self.recommendation_classes = list(artifact['recommendation_classes'])
+        except Exception as exc:
+            self.load_error = str(exc)
+
+    @classmethod
+    def map_features(cls, data):
+        features = {}
+        for feature, aliases in cls.FEATURE_INPUTS.items():
+            value = next((data[key] for key in aliases if data.get(key) is not None), None)
+            try:
+                features[feature] = float(value) if value is not None else np.nan
+            except (TypeError, ValueError):
+                features[feature] = np.nan
+        return features
+
+    @staticmethod
+    def completeness_recommendations(data):
+        """Return deterministic gaps; legacy emissions_co2 is not scope data."""
+        scope1_parts = ('scope1_stationary_combustion_tco2e', 'scope1_stationary_fuel_combustion_tco2e', 'scope1_mobile_combustion_tco2e', 'scope1_process_tco2e', 'scope1_process_emissions_tco2e', 'scope1_fugitive_tco2e', 'scope1_fugitive_refrigerant_emissions_tco2e')
+        scope1_present = data.get('scope1_tco2e') is not None or data.get('scope1_direct_emissions_tco2e') is not None or any(data.get(k) is not None for k in scope1_parts)
+        electricity = data.get('purchased_electricity_kwh', data.get('electricity_consumption_kwh'))
+        factor = data.get('electricity_grid_factor_kgco2e_per_kwh', data.get('electricity_grid_factor_kg_kwh'))
+        scope3_keys = ('scope3_purchased_goods_tco2e', 'scope3_purchased_goods_services_tco2e', 'scope3_transport_tco2e', 'scope3_upstream_transportation_tco2e', 'scope3_waste_tco2e', 'scope3_waste_generated_operations_tco2e', 'scope3_business_travel_tco2e', 'scope3_other_tco2e', 'scope3_other_value_chain_sources_tco2e')
+        gaps = []
+        if not scope1_present:
+            gaps.append({'key': 'scope1_inventory', 'recommendation': 'Establish a Scope 1 direct-emissions baseline from fuel, process, fleet, and refrigerant sources.'})
+        if electricity is None or factor is None:
+            gaps.append({'key': 'scope2_inventory', 'recommendation': 'Collect purchased-electricity consumption and a documented grid emission factor to quantify Scope 2.'})
+        if data.get('scope3_total_tco2e') is None and data.get('scope3_reported_total_tco2e') is None and not any(data.get(k) is not None for k in scope3_keys):
+            gaps.append({'key': 'scope3_screening', 'recommendation': 'Screen material value-chain categories and establish a Scope 3 baseline.'})
+        return gaps
+
+    def predict(self, data):
+        gaps = self.completeness_recommendations(data)
+        base = {'model_version': self.MODEL_VERSION, 'data_completeness_recommendations': gaps}
+        if self.model is None:
+            return {**base, 'status': 'fallback', 'recommendations': [], 'message': f'Recommendation model unavailable: {self.load_error or "not loaded"}'}
+        try:
+            mapped = self.map_features(data)
+            row = np.array([[mapped.get(name, np.nan) for name in self.feature_cols]], dtype=float)
+            prediction = np.asarray(self.model.predict(row)[0])
+            # The trained forest emits a four-position binary indicator vector
+            # aligned with recommendation_classes. Keep scalar estimators usable
+            # for compatibility with other serialized classifier forms.
+            if prediction.ndim > 0 and prediction.size == len(self.recommendation_classes):
+                labels = [
+                    label for label, selected in zip(self.recommendation_classes, prediction.reshape(-1))
+                    if bool(selected)
+                ]
+            else:
+                labels = [str(prediction.item())]
+            return {**base, 'status': 'predicted', 'recommendations': labels}
+        except Exception as exc:
+            return {**base, 'status': 'fallback', 'recommendations': [], 'message': f'Recommendation inference failed: {exc}'}
 
 class CarbonScorePredictor:
     """Carbon score prediction with SHAP explanations"""

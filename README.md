@@ -11,11 +11,11 @@ A full-stack web application for carbon credit trading, scoring, and compliance 
 ## 🌟 Features
 
 ### For Companies
-- **Carbon Score Assessment** - AI-powered 4-model ML pipeline
+- **Carbon Score Assessment** - carbon-score model when its artifacts are supplied; otherwise a clearly identified deterministic fallback
 - **Certificate Generation** - Downloadable PDF certificates with QR codes
 - **Credit Trading** - Buy carbon credits from marketplace
 - **Score History** - Track improvement over time
-- **AI Recommendations** - Gemini-powered suggestions for improvement
+- **Recommendations** - classifier-selected categories with data-grounded backend actions and scope-completeness guidance
 
 ### For Individuals
 - **Credit Balance** - Track owned carbon credits
@@ -128,7 +128,7 @@ vercel
 Set environment variables in Vercel dashboard:
 - `DATABASE_URL`
 - `JWT_SECRET`
-- `GEMINI_API_KEY`
+- `ML_SERVICE_URL` (for example, `http://ml-service:8000` on the Compose network)
 - `ML_SERVICE_URL`
 
 ### ML Service
@@ -143,27 +143,21 @@ Company users can submit a reporting period, Scope 1 emissions, purchased electr
 
 No PostgreSQL migration is needed for the GHG input fields: they are stored in `company_data_records.data` JSONB and older records remain valid. Recommendation lifecycle and planning metadata use migrations `003_company_recommendations.sql` and `004_recommendation_planning_details.sql`.
 
-### Local Ollama recommendations and Net Zero planning
+### Recommendation classifier and Net Zero planning
 
-CarbonScoreX sends company metrics and up to five recent submissions to the backend-configured language model for recommendation wording and report planning. Deterministic scoring, scope calculations, and the Python ML service remain independent. Recommendation rules validate the candidate actions, and the AI must return structured action, reason, priority, KPI, and timeframe fields. If Ollama is unavailable or its response is invalid, the API logs the failure and returns explicitly labeled data-driven rule recommendations; the report retains its deterministic planning fallback.
+The backend sends only numeric assessment fields to `POST /recommendations/predict` at `ML_SERVICE_URL` (Compose service hostname `ml-service`, port `8000`). Missing fields remain absent. The classifier selects among four trained action categories; backend rules provide the detailed action, rationale, priority, timeframe, KPI and evidence. Scope 1, Scope 2 and Scope 3 completeness actions are deterministic and are retained independently of classifier output. If the classifier is unavailable, supported deterministic recommendations remain available without waiting for a language model.
 
-1. Install/start Ollama on the Windows host, then pull the configured model:
+The Net Zero pathway uses the existing deterministic inventory calculator. It calculates a scenario only from a complete Scope 1, Scope 2 and Scope 3 baseline, labels the trajectory as illustrative arithmetic, and does not present it as a verified forecast or company commitment. PDF reports use the same saved assessment, recommendations and pathway calculations as the dashboard.
 
-   ```powershell
-   ollama pull qwen3:4b
-   ollama serve
-   ```
+The recommendation artifact was trained on 200 synthetic records with rule-generated labels; its evaluation does not establish real-world accuracy. The separate carbon-score model artifacts are not currently included under `ml-service/models`. In their absence, `/health` reports `model_loaded: false` and carbon scoring uses a rule-based fallback; score provenance is shown in the company dashboard.
 
-2. For the Node backend running directly on Windows, copy `.env.example` to `backend/.env` and keep `OLLAMA_BASE_URL=http://localhost:11434` with `AI_PROVIDER=ollama`.
-3. With Docker Desktop, copy `.env.example` to the project `.env` file and set `OLLAMA_BASE_URL=http://host.docker.internal:11434` (Compose uses this default when unset). Keep Ollama on a trusted local interface and do not port-forward or publish port 11434 to the internet. If Docker cannot reach an Ollama instance bound only to loopback, allow host access only on the private Docker Desktop path and restrict inbound access with Windows Firewall; do not open the port to public networks.
-4. Start the app with `docker compose up --build`. Compose mounts migrations only when initializing a new PostgreSQL volume. For an existing database, run migration `004_recommendation_planning_details.sql` after migration 003:
+Start the full development stack with Docker Compose:
 
-   ```powershell
-   cd backend
-   psql $env:DATABASE_URL -f migrations/004_recommendation_planning_details.sql
-   ```
+```powershell
+docker compose up --build
+```
 
-Set `AI_PROVIDER=gemini` and `GEMINI_API_KEY` only if you want the optional Gemini provider instead. Ollama requests use `/api/chat`, the `qwen3:4b` default, JSON mode, and a 120-second configurable timeout (`OLLAMA_TIMEOUT_MS`). The API remains backend-only; the React app never connects to Ollama directly.
+Compose supplies `ML_SERVICE_URL=http://ml-service:8000` for backend-to-ML traffic. Recommendation generation has no external language-model dependency.
 
 ## 📁 Project Structure
 
