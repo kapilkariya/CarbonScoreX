@@ -8,6 +8,7 @@ const certificateGenerator = require('../utils/pdfGenerator');
 const assessmentReportGenerator = require('../utils/assessmentReportGenerator');
 const recommendationService = require('../services/recommendationService');
 const { randomUUID } = require('crypto');
+const { extractBillData, mapToFormFields } = require('../services/billExtractionService');
 
 const recommendationHistoryFields = [
     'reporting_period_start', 'reporting_period_end', 'energy_consumption', 'electricity_consumption_kwh',
@@ -34,7 +35,73 @@ class CompanyController {
         this.getNetZeroPathway = this.getNetZeroPathway.bind(this);
         this.updateRecommendationStatus = this.updateRecommendationStatus.bind(this);
         this.downloadAssessmentReport = this.downloadAssessmentReport.bind(this);
+        this.extractBill = this.extractBill.bind(this);
     }
+
+    /**
+     * POST /api/companies/extract-bill
+     * Accept a utility-bill PDF or image and return AI-extracted consumption metrics
+     * that can be used to auto-populate the environmental data submission form.
+     *
+     * Body (multipart/form-data):
+     *   - file: the bill document (required)
+     *   - hint: optional bill-type hint string ("electricity"|"water"|"fuel"|"gas"|"waste")
+     */
+    async extractBill(req, res) {
+        try {
+            // multer places the file on req.file
+            if (!req.file) {
+                return res.status(400).json({
+                    error: 'No file uploaded. Please attach a bill document (PDF, PNG, JPG, or WEBP).',
+                });
+            }
+
+            const allowedTypes = [
+                'application/pdf',
+                'image/png',
+                'image/jpeg',
+                'image/jpg',
+                'image/webp',
+            ];
+            if (!allowedTypes.includes(req.file.mimetype)) {
+                return res.status(415).json({
+                    error: `Unsupported file type "${req.file.mimetype}". Allowed: PDF, PNG, JPEG, WEBP.`,
+                });
+            }
+
+            const hint = (req.body.hint || '').trim().toLowerCase();
+
+            // Call Gemini extraction
+            const extracted = await extractBillData(req.file.buffer, req.file.mimetype, hint);
+
+            // Map to form fields for auto-fill
+            const formFields = mapToFormFields(extracted);
+
+            return res.json({
+                success: true,
+                filename: req.file.originalname,
+                filesize_bytes: req.file.size,
+                extracted,       // full structured result from Gemini
+                form_fields: formFields, // ready-to-use subset for the submission form
+            });
+
+        } catch (error) {
+            console.error('Bill extraction error:', error);
+
+            // Distinguish known configuration error from runtime errors
+            if (error.message && error.message.includes('GEMINI_API_KEY')) {
+                return res.status(503).json({
+                    error: 'AI extraction service is not configured. Please contact the administrator.',
+                });
+            }
+
+            return res.status(500).json({
+                error: 'Failed to extract data from the bill. Please ensure the document is clear and try again.',
+                details: process.env.NODE_ENV === 'development' ? error.message : undefined,
+            });
+        }
+    }
+
 
     /**
      * Get all companies (public listing)
