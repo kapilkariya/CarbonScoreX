@@ -7,6 +7,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import QRCode from 'react-qr-code';
 import api from '../services/api';
 import { normalizeRecommendation } from '../utils/recommendations';
+import BillUploader from './BillUploader';
 
 function CompanyDashboard() {
     const todayLocal = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
@@ -54,6 +55,58 @@ function CompanyDashboard() {
     const [pathwayRetry, setPathwayRetry] = useState(0);
     const [targetYear, setTargetYear] = useState(new Date().getFullYear() + 24);
     const [annualReductionPct, setAnnualReductionPct] = useState(4);
+
+    // Tracks which formData fields were auto-populated by AI bill extraction.
+    // Used to show a "Extracted from bill ✨" badge on those inputs.
+    const [autoFilledFields, setAutoFilledFields] = useState(new Set());
+
+    /**
+     * Called by BillUploader when AI extraction succeeds.
+     * Merges extracted values into the form and highlights auto-filled fields.
+     * @param {string[]} [allowedFields]  Optional whitelist – only these keys are merged.
+     *   When omitted (or empty), all extracted fields are merged (legacy behaviour).
+     */
+    const handleBillExtracted = (formFields, _fullExtracted, allowedFields) => {
+        // Separate "private" helper fields (prefixed with _) from real form fields
+        let publicFields = Object.entries(formFields).filter(([k]) => !k.startsWith('_'));
+
+        // If a field whitelist was supplied, restrict to only those keys
+        if (allowedFields && allowedFields.length > 0) {
+            const allowed = new Set(allowedFields);
+            publicFields = publicFields.filter(([k]) => allowed.has(k));
+        }
+
+        if (publicFields.length === 0) return;
+
+        setFormData((prev) => {
+            const next = { ...prev };
+            for (const [key, value] of publicFields) {
+                if (value != null && value !== '') {
+                    // Only override numeric fields if the extracted value is > 0
+                    const isNumeric = typeof value === 'number';
+                    if (isNumeric && value <= 0) continue;
+                    next[key] = value;
+                }
+            }
+            return next;
+        });
+
+        setAutoFilledFields((prev) => {
+            const next = new Set(prev);
+            publicFields.forEach(([k]) => next.add(k));
+            return next;
+        });
+    };
+
+    // Clear auto-fill highlight when the user manually edits a field
+    const clearAutoFill = (fieldName) => {
+        setAutoFilledFields((prev) => {
+            const next = new Set(prev);
+            next.delete(fieldName);
+            return next;
+        });
+    };
+
 
     // Marketplace state
     const [activeTab, setActiveTab] = useState('dashboard');
@@ -659,18 +712,63 @@ function CompanyDashboard() {
                             </div>
                             {reportError && <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800" role="alert"><span>{reportError}</span><button type="button" onClick={handleDownloadAssessmentReport} disabled={downloadingReport || loadingRecommendations} className="rounded border border-red-300 px-3 py-1 font-medium disabled:opacity-50">Retry report</button></div>}
                             <form onSubmit={handleSubmit} className="space-y-6">
+
                                 <div>
-                                    <h3 className="mb-3 font-semibold text-gray-800">Reporting period</h3>
+                                    <div className="mb-3 flex items-center justify-between">
+                                        <h3 className="font-semibold text-gray-800">Reporting period</h3>
+                                        <details className="group">
+                                            <summary className="flex cursor-pointer items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800 list-none">
+                                                <span>🤖</span> Auto-fill from bill
+                                                <span className="ml-1 text-gray-400 group-open:hidden">▼</span>
+                                                <span className="ml-1 text-gray-400 hidden group-open:inline">▲</span>
+                                            </summary>
+                                            <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50 p-3">
+                                                <p className="mb-2 text-xs text-gray-600">Upload any utility bill — only the <strong>billing dates</strong> will be filled.</p>
+                                                <BillUploader
+                                                    onExtracted={(fields, extracted) => handleBillExtracted(fields, extracted, ['reporting_period_start', 'reporting_period_end'])}
+                                                    disabled={submitting}
+                                                />
+                                            </div>
+                                        </details>
+                                    </div>
                                     <div className="grid md:grid-cols-2 gap-4">
                                         <label className="text-sm font-medium text-gray-700">Start date
-                                            <input type="date" required value={formData.reporting_period_start} onChange={(e) => setFormData({ ...formData, reporting_period_start: e.target.value })} className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2" />
+                                            {autoFilledFields.has('reporting_period_start') && (
+                                                <span className="ml-2 text-xs font-normal text-green-600">✨ Extracted from bill</span>
+                                            )}
+                                            <input type="date" required value={formData.reporting_period_start}
+                                                onChange={(e) => { setFormData({ ...formData, reporting_period_start: e.target.value }); clearAutoFill('reporting_period_start'); }}
+                                                className={`mt-1 w-full rounded-md border px-3 py-2 ${autoFilledFields.has('reporting_period_start') ? 'border-green-400 bg-green-50 ring-1 ring-green-300' : 'border-gray-300'}`} />
                                         </label>
                                         <label className="text-sm font-medium text-gray-700">End date
-                                            <input type="date" required min={formData.reporting_period_start} value={formData.reporting_period_end} onChange={(e) => setFormData({ ...formData, reporting_period_end: e.target.value })} className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2" />
+                                            {autoFilledFields.has('reporting_period_end') && (
+                                                <span className="ml-2 text-xs font-normal text-green-600">✨ Extracted from bill</span>
+                                            )}
+                                            <input type="date" required min={formData.reporting_period_start} value={formData.reporting_period_end}
+                                                onChange={(e) => { setFormData({ ...formData, reporting_period_end: e.target.value }); clearAutoFill('reporting_period_end'); }}
+                                                className={`mt-1 w-full rounded-md border px-3 py-2 ${autoFilledFields.has('reporting_period_end') ? 'border-green-400 bg-green-50 ring-1 ring-green-300' : 'border-gray-300'}`} />
                                         </label>
                                     </div>
                                 </div>
-                                <div className="grid md:grid-cols-2 gap-6">
+                                <div>
+                                    <div className="mb-3 flex items-center justify-between">
+                                        <h3 className="font-semibold text-gray-800">Energy, Water &amp; Emissions</h3>
+                                        <details className="group">
+                                            <summary className="flex cursor-pointer items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800 list-none">
+                                                <span>🤖</span> Auto-fill from bill
+                                                <span className="ml-1 text-gray-400 group-open:hidden">▼</span>
+                                                <span className="ml-1 text-gray-400 hidden group-open:inline">▲</span>
+                                            </summary>
+                                            <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50 p-3">
+                                                <p className="mb-2 text-xs text-gray-600">Upload an electricity or water bill — only <strong>Energy Consumption</strong> and <strong>Water Usage</strong> will be filled.</p>
+                                                <BillUploader
+                                                    onExtracted={(fields, extracted) => handleBillExtracted(fields, extracted, ['energy_consumption', 'water_usage'])}
+                                                    disabled={submitting}
+                                                />
+                                            </div>
+                                        </details>
+                                    </div>
+                                    <div className="grid md:grid-cols-2 gap-6">
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-2">
                                             Renewable Energy Usage (%)
@@ -702,20 +800,23 @@ function CompanyDashboard() {
                                     </div>
 
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
                                             Energy Consumption (kWh)
+                                            {autoFilledFields.has('energy_consumption') && (
+                                                <span className="ml-2 text-xs font-normal text-green-600">✨ Extracted from bill</span>
+                                            )}
                                         </label>
                                         <input
                                             type="number"
                                             min="0"
                                             value={formData.energy_consumption}
-                                            onChange={(e) => setFormData({ ...formData, energy_consumption: parseFloat(e.target.value) || 0 })}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                            onChange={(e) => { setFormData({ ...formData, energy_consumption: parseFloat(e.target.value) || 0 }); clearAutoFill('energy_consumption'); }}
+                                            className={`w-full px-3 py-2 border rounded-md ${autoFilledFields.has('energy_consumption') ? 'border-green-400 bg-green-50 ring-1 ring-green-300' : 'border-gray-300'}`}
                                         />
                                     </div>
 
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
                                             CO2 Emissions (tons)
                                         </label>
                                         <input
@@ -728,15 +829,18 @@ function CompanyDashboard() {
                                     </div>
 
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
                                             Water Usage (liters)
+                                            {autoFilledFields.has('water_usage') && (
+                                                <span className="ml-2 text-xs font-normal text-green-600">✨ Extracted from bill</span>
+                                            )}
                                         </label>
                                         <input
                                             type="number"
                                             min="0"
                                             value={formData.water_usage}
-                                            onChange={(e) => setFormData({ ...formData, water_usage: parseFloat(e.target.value) || 0 })}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                            onChange={(e) => { setFormData({ ...formData, water_usage: parseFloat(e.target.value) || 0 }); clearAutoFill('water_usage'); }}
+                                            className={`w-full px-3 py-2 border rounded-md ${autoFilledFields.has('water_usage') ? 'border-green-400 bg-green-50 ring-1 ring-green-300' : 'border-gray-300'}`}
                                         />
                                     </div>
 
@@ -765,11 +869,30 @@ function CompanyDashboard() {
                                             className="w-full px-3 py-2 border border-gray-300 rounded-md"
                                         />
                                     </div>
+                                    </div>
                                 </div>
 
                                 <div className="border-t pt-5">
-                                    <h3 className="text-lg font-semibold text-gray-900">GHG inventory inputs (tCO2e)</h3>
-                                    <p className="mb-4 text-sm text-gray-600">Enter scope totals from your records. Missing scopes remain unquantified in the report.</p>
+                                    <div className="mb-4 flex items-center justify-between">
+                                        <div>
+                                            <h3 className="text-lg font-semibold text-gray-900">GHG inventory inputs (tCO2e)</h3>
+                                            <p className="text-sm text-gray-600">Enter scope totals from your records. Missing scopes remain unquantified in the report.</p>
+                                        </div>
+                                        <details className="group ml-4 flex-shrink-0">
+                                            <summary className="flex cursor-pointer items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800 list-none">
+                                                <span>🤖</span> Auto-fill from electricity bill
+                                                <span className="ml-1 text-gray-400 group-open:hidden">▼</span>
+                                                <span className="ml-1 text-gray-400 hidden group-open:inline">▲</span>
+                                            </summary>
+                                            <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50 p-3">
+                                                <p className="mb-2 text-xs text-gray-600">Upload an electricity bill — only <strong>Purchased electricity (kWh)</strong>, <strong>Grid factor</strong>, and <strong>Factor source</strong> will be filled.</p>
+                                                <BillUploader
+                                                    onExtracted={(fields, extracted) => handleBillExtracted(fields, extracted, ['electricity_consumption_kwh', 'electricity_grid_factor_kg_kwh', 'electricity_factor_source', 'data_quality_notes'])}
+                                                    disabled={submitting}
+                                                />
+                                            </div>
+                                        </details>
+                                    </div>
                                     <div className="grid md:grid-cols-2 gap-4">
                                         <label className="text-sm font-medium text-gray-700">Scope 1 direct emissions
                                             <input type="number" min="0" step="any" value={formData.scope1_tco2e} onChange={(e) => setFormData({ ...formData, scope1_tco2e: e.target.value })} placeholder="Optional" className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2" />
@@ -785,13 +908,22 @@ function CompanyDashboard() {
                                             </label>
                                         ))}
                                         <label className="text-sm font-medium text-gray-700">Purchased electricity (kWh)
-                                            <input type="number" min="0" step="any" value={formData.electricity_consumption_kwh} onChange={(e) => setFormData({ ...formData, electricity_consumption_kwh: e.target.value })} placeholder="Required to calculate Scope 2" className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2" />
+                                            {autoFilledFields.has('electricity_consumption_kwh') && (
+                                                <span className="ml-2 text-xs font-normal text-green-600">✨ Extracted from bill</span>
+                                            )}
+                                            <input type="number" min="0" step="any" value={formData.electricity_consumption_kwh} onChange={(e) => { setFormData({ ...formData, electricity_consumption_kwh: e.target.value }); clearAutoFill('electricity_consumption_kwh'); }} placeholder="Required to calculate Scope 2" className={`mt-1 w-full rounded-md border px-3 py-2 ${autoFilledFields.has('electricity_consumption_kwh') ? 'border-green-400 bg-green-50 ring-1 ring-green-300' : 'border-gray-300'}`} />
                                         </label>
                                         <label className="text-sm font-medium text-gray-700">Electricity grid factor (kg CO2e/kWh)
-                                            <input type="number" min="0" step="any" value={formData.electricity_grid_factor_kg_kwh} onChange={(e) => setFormData({ ...formData, electricity_grid_factor_kg_kwh: e.target.value })} placeholder="Required to calculate Scope 2" className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2" />
+                                            {autoFilledFields.has('electricity_grid_factor_kg_kwh') && (
+                                                <span className="ml-2 text-xs font-normal text-green-600">✨ Extracted from bill</span>
+                                            )}
+                                            <input type="number" min="0" step="any" value={formData.electricity_grid_factor_kg_kwh} onChange={(e) => { setFormData({ ...formData, electricity_grid_factor_kg_kwh: e.target.value }); clearAutoFill('electricity_grid_factor_kg_kwh'); }} placeholder="Required to calculate Scope 2" className={`mt-1 w-full rounded-md border px-3 py-2 ${autoFilledFields.has('electricity_grid_factor_kg_kwh') ? 'border-green-400 bg-green-50 ring-1 ring-green-300' : 'border-gray-300'}`} />
                                         </label>
                                         <label className="text-sm font-medium text-gray-700 md:col-span-2">Electricity factor source / reference
-                                            <input type="text" maxLength="500" value={formData.electricity_factor_source} onChange={(e) => setFormData({ ...formData, electricity_factor_source: e.target.value })} placeholder="Publisher, region, year, URL or document reference" className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2" />
+                                            {autoFilledFields.has('electricity_factor_source') && (
+                                                <span className="ml-2 text-xs font-normal text-green-600">✨ Extracted from bill</span>
+                                            )}
+                                            <input type="text" maxLength="500" value={formData.electricity_factor_source} onChange={(e) => { setFormData({ ...formData, electricity_factor_source: e.target.value }); clearAutoFill('electricity_factor_source'); }} placeholder="Publisher, region, year, URL or document reference" className={`mt-1 w-full rounded-md border px-3 py-2 ${autoFilledFields.has('electricity_factor_source') ? 'border-green-400 bg-green-50 ring-1 ring-green-300' : 'border-gray-300'}`} />
                                         </label>
                                         <label className="text-sm font-medium text-gray-700">Scope 3 reported total
                                             <input type="number" min="0" step="any" value={formData.scope3_total_tco2e} onChange={(e) => setFormData({ ...formData, scope3_total_tco2e: e.target.value })} placeholder="Optional; category sum used if blank" className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2" />
@@ -809,7 +941,10 @@ function CompanyDashboard() {
                                             </label>
                                         ))}
                                         <label className="text-sm font-medium text-gray-700 md:col-span-2">Data quality notes
-                                            <textarea rows="3" maxLength="2000" value={formData.data_quality_notes} onChange={(e) => setFormData({ ...formData, data_quality_notes: e.target.value })} placeholder="Estimates, exclusions, boundary notes, source records or known limitations" className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2" />
+                                            {autoFilledFields.has('data_quality_notes') && (
+                                                <span className="ml-2 text-xs font-normal text-green-600">✨ Auto-populated reference</span>
+                                            )}
+                                            <textarea rows="3" maxLength="2000" value={formData.data_quality_notes} onChange={(e) => { setFormData({ ...formData, data_quality_notes: e.target.value }); clearAutoFill('data_quality_notes'); }} placeholder="Estimates, exclusions, boundary notes, source records or known limitations" className={`mt-1 w-full rounded-md border px-3 py-2 ${autoFilledFields.has('data_quality_notes') ? 'border-green-400 bg-green-50 ring-1 ring-green-300' : 'border-gray-300'}`} />
                                         </label>
                                     </div>
                                 </div>

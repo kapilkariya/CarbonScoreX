@@ -1,15 +1,15 @@
 -- Seed data for CarbonScoreX
 -- Password for all users: "password123" (hashed with bcrypt, cost 10)
--- Hash: $2b$10$rKZVZE8k5jLqKx7h8RgZXO8GxKZYQJKYZXqHZX8kZX8kZX8kZX8kZ
+-- Hash: $2b$10$uMo.xXD.NsOw7I1UpeHguOxPnzubwjmBLjLEbPdJ168rHgFBbsg0a
 
 -- Insert users
 INSERT INTO users (email, password_hash, user_type, full_name) VALUES
-('admin@carbonscorex.gov', '$2b$10$rKZVZE8k5jLqKx7h8RgZXO8GxKZYQJKYZXqHZX8kZX8kZX8kZX8kZ', 'government', 'Government Admin'),
-('greentech@example.com', '$2b$10$rKZVZE8k5jLqKx7h8RgZXO8GxKZYQJKYZXqHZX8kZX8kZX8kZX8kZ', 'company', 'GreenTech Industries'),
-('ecofactory@example.com', '$2b$10$rKZVZE8k5jLqKx7h8RgZXO8GxKZYQJKYZXqHZX8kZX8kZX8kZX8kZ', 'company', 'EcoFactory Ltd'),
-('pollutecorp@example.com', '$2b$10$rKZVZE8k5jLqKx7h8RgZXO8GxKZYQJKYZXqHZX8kZX8kZX8kZX8kZ', 'company', 'PolluteCorp'),
-('john.tree@example.com', '$2b$10$rKZVZE8k5jLqKx7h8RgZXO8GxKZYQJKYZXqHZX8kZX8kZX8kZX8kZ', 'individual', 'John Tree Owner'),
-('sarah.forest@example.com', '$2b$10$rKZVZE8k5jLqKx7h8RgZXO8GxKZYQJKYZXqHZX8kZX8kZX8kZX8kZ', 'individual', 'Sarah Forest Owner');
+('admin@carbonscorex.gov', '$2b$10$uMo.xXD.NsOw7I1UpeHguOxPnzubwjmBLjLEbPdJ168rHgFBbsg0a', 'government', 'Government Admin'),
+('greentech@example.com', '$2b$10$uMo.xXD.NsOw7I1UpeHguOxPnzubwjmBLjLEbPdJ168rHgFBbsg0a', 'company', 'GreenTech Industries'),
+('ecofactory@example.com', '$2b$10$uMo.xXD.NsOw7I1UpeHguOxPnzubwjmBLjLEbPdJ168rHgFBbsg0a', 'company', 'EcoFactory Ltd'),
+('pollutecorp@example.com', '$2b$10$uMo.xXD.NsOw7I1UpeHguOxPnzubwjmBLjLEbPdJ168rHgFBbsg0a', 'company', 'PolluteCorp'),
+('john.tree@example.com', '$2b$10$uMo.xXD.NsOw7I1UpeHguOxPnzubwjmBLjLEbPdJ168rHgFBbsg0a', 'individual', 'John Tree Owner'),
+('sarah.forest@example.com', '$2b$10$uMo.xXD.NsOw7I1UpeHguOxPnzubwjmBLjLEbPdJ168rHgFBbsg0a', 'individual', 'Sarah Forest Owner');
 
 -- Insert companies
 INSERT INTO companies (user_id, company_name, industry, registration_number, address) VALUES

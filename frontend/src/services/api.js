@@ -48,6 +48,24 @@ const api = {
   login: (data) => apiClient.post('/auth/login', data),
   getProfile: () => apiClient.get('/auth/profile'),
 
+  /**
+   * Upload a utility bill (electricity / water / fuel / gas / waste)
+   * and let Gemini AI extract the consumption metrics.
+   *
+   * @param {File}   file - the bill file (PDF, PNG, JPG, WEBP)
+   * @param {string} [hint] - optional hint: 'electricity'|'water'|'fuel'|'gas'|'waste'
+   * @returns {Promise<AxiosResponse>}
+   */
+  extractBillData: (file, hint = '') => {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (hint) formData.append('hint', hint);
+    return apiClient.post('/companies/extract-bill', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 60000, // AI extraction can take up to 60s
+    });
+  },
+
   // Companies
   getAllCompanies: () => apiClient.get('/companies'),
   submitCompanyData: (companyId, data) =>

@@ -9,3 +9,5 @@ ml-service/__pycache__
 ml-service/*.pyc
 *.log
 .DS_Store
+coverage/
+backend/coverage/
