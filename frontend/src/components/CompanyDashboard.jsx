@@ -63,10 +63,19 @@ function CompanyDashboard() {
     /**
      * Called by BillUploader when AI extraction succeeds.
      * Merges extracted values into the form and highlights auto-filled fields.
+     * @param {string[]} [allowedFields]  Optional whitelist – only these keys are merged.
+     *   When omitted (or empty), all extracted fields are merged (legacy behaviour).
      */
-    const handleBillExtracted = (formFields, _fullExtracted) => {
+    const handleBillExtracted = (formFields, _fullExtracted, allowedFields) => {
         // Separate "private" helper fields (prefixed with _) from real form fields
-        const publicFields = Object.entries(formFields).filter(([k]) => !k.startsWith('_'));
+        let publicFields = Object.entries(formFields).filter(([k]) => !k.startsWith('_'));
+
+        // If a field whitelist was supplied, restrict to only those keys
+        if (allowedFields && allowedFields.length > 0) {
+            const allowed = new Set(allowedFields);
+            publicFields = publicFields.filter(([k]) => allowed.has(k));
+        }
+
         if (publicFields.length === 0) return;
 
         setFormData((prev) => {
@@ -82,7 +91,11 @@ function CompanyDashboard() {
             return next;
         });
 
-        setAutoFilledFields(new Set(publicFields.map(([k]) => k)));
+        setAutoFilledFields((prev) => {
+            const next = new Set(prev);
+            publicFields.forEach(([k]) => next.add(k));
+            return next;
+        });
     };
 
     // Clear auto-fill highlight when the user manually edits a field
@@ -700,28 +713,24 @@ function CompanyDashboard() {
                             {reportError && <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800" role="alert"><span>{reportError}</span><button type="button" onClick={handleDownloadAssessmentReport} disabled={downloadingReport || loadingRecommendations} className="rounded border border-red-300 px-3 py-1 font-medium disabled:opacity-50">Retry report</button></div>}
                             <form onSubmit={handleSubmit} className="space-y-6">
 
-                                {/* ── AI Bill Extraction Panel ───────────────────── */}
-                                <div className="rounded-xl border border-blue-100 bg-blue-50 p-5">
-                                    <div className="mb-4 flex items-center gap-3">
-                                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-r from-blue-500 to-green-500 text-white text-lg">
-                                            🤖
-                                        </div>
-                                        <div>
-                                            <h3 className="font-semibold text-gray-900">AI Document Extraction</h3>
-                                            <p className="text-xs text-gray-600">
-                                                Upload official utility bills or invoices — AI will extract and auto-fill the form fields below.
-                                                Supported: Electricity, Water, Fuel, Natural Gas, Waste bills (PDF or image).
-                                            </p>
-                                        </div>
-                                    </div>
-                                    <BillUploader
-                                        onExtracted={handleBillExtracted}
-                                        disabled={submitting}
-                                    />
-                                </div>
-
                                 <div>
-                                    <h3 className="mb-3 font-semibold text-gray-800">Reporting period</h3>
+                                    <div className="mb-3 flex items-center justify-between">
+                                        <h3 className="font-semibold text-gray-800">Reporting period</h3>
+                                        <details className="group">
+                                            <summary className="flex cursor-pointer items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800 list-none">
+                                                <span>🤖</span> Auto-fill from bill
+                                                <span className="ml-1 text-gray-400 group-open:hidden">▼</span>
+                                                <span className="ml-1 text-gray-400 hidden group-open:inline">▲</span>
+                                            </summary>
+                                            <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50 p-3">
+                                                <p className="mb-2 text-xs text-gray-600">Upload any utility bill — only the <strong>billing dates</strong> will be filled.</p>
+                                                <BillUploader
+                                                    onExtracted={(fields, extracted) => handleBillExtracted(fields, extracted, ['reporting_period_start', 'reporting_period_end'])}
+                                                    disabled={submitting}
+                                                />
+                                            </div>
+                                        </details>
+                                    </div>
                                     <div className="grid md:grid-cols-2 gap-4">
                                         <label className="text-sm font-medium text-gray-700">Start date
                                             {autoFilledFields.has('reporting_period_start') && (
@@ -741,7 +750,25 @@ function CompanyDashboard() {
                                         </label>
                                     </div>
                                 </div>
-                                <div className="grid md:grid-cols-2 gap-6">
+                                <div>
+                                    <div className="mb-3 flex items-center justify-between">
+                                        <h3 className="font-semibold text-gray-800">Energy, Water &amp; Emissions</h3>
+                                        <details className="group">
+                                            <summary className="flex cursor-pointer items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800 list-none">
+                                                <span>🤖</span> Auto-fill from bill
+                                                <span className="ml-1 text-gray-400 group-open:hidden">▼</span>
+                                                <span className="ml-1 text-gray-400 hidden group-open:inline">▲</span>
+                                            </summary>
+                                            <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50 p-3">
+                                                <p className="mb-2 text-xs text-gray-600">Upload an electricity or water bill — only <strong>Energy Consumption</strong> and <strong>Water Usage</strong> will be filled.</p>
+                                                <BillUploader
+                                                    onExtracted={(fields, extracted) => handleBillExtracted(fields, extracted, ['energy_consumption', 'water_usage'])}
+                                                    disabled={submitting}
+                                                />
+                                            </div>
+                                        </details>
+                                    </div>
+                                    <div className="grid md:grid-cols-2 gap-6">
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-2">
                                             Renewable Energy Usage (%)
@@ -842,11 +869,30 @@ function CompanyDashboard() {
                                             className="w-full px-3 py-2 border border-gray-300 rounded-md"
                                         />
                                     </div>
+                                    </div>
                                 </div>
 
                                 <div className="border-t pt-5">
-                                    <h3 className="text-lg font-semibold text-gray-900">GHG inventory inputs (tCO2e)</h3>
-                                    <p className="mb-4 text-sm text-gray-600">Enter scope totals from your records. Missing scopes remain unquantified in the report.</p>
+                                    <div className="mb-4 flex items-center justify-between">
+                                        <div>
+                                            <h3 className="text-lg font-semibold text-gray-900">GHG inventory inputs (tCO2e)</h3>
+                                            <p className="text-sm text-gray-600">Enter scope totals from your records. Missing scopes remain unquantified in the report.</p>
+                                        </div>
+                                        <details className="group ml-4 flex-shrink-0">
+                                            <summary className="flex cursor-pointer items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800 list-none">
+                                                <span>🤖</span> Auto-fill from electricity bill
+                                                <span className="ml-1 text-gray-400 group-open:hidden">▼</span>
+                                                <span className="ml-1 text-gray-400 hidden group-open:inline">▲</span>
+                                            </summary>
+                                            <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50 p-3">
+                                                <p className="mb-2 text-xs text-gray-600">Upload an electricity bill — only <strong>Purchased electricity (kWh)</strong>, <strong>Grid factor</strong>, and <strong>Factor source</strong> will be filled.</p>
+                                                <BillUploader
+                                                    onExtracted={(fields, extracted) => handleBillExtracted(fields, extracted, ['electricity_consumption_kwh', 'electricity_grid_factor_kg_kwh', 'electricity_factor_source', 'data_quality_notes'])}
+                                                    disabled={submitting}
+                                                />
+                                            </div>
+                                        </details>
+                                    </div>
                                     <div className="grid md:grid-cols-2 gap-4">
                                         <label className="text-sm font-medium text-gray-700">Scope 1 direct emissions
                                             <input type="number" min="0" step="any" value={formData.scope1_tco2e} onChange={(e) => setFormData({ ...formData, scope1_tco2e: e.target.value })} placeholder="Optional" className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2" />

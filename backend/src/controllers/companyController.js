@@ -95,9 +95,10 @@ class CompanyController {
                 });
             }
 
+            const errorMessage = error.message || 'Failed to extract data from the bill.';
             return res.status(500).json({
-                error: 'Failed to extract data from the bill. Please ensure the document is clear and try again.',
-                details: process.env.NODE_ENV === 'development' ? error.message : undefined,
+                error: errorMessage,
+                details: process.env.NODE_ENV === 'development' ? error.stack : undefined,
             });
         }
     }
