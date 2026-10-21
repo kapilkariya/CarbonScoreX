@@ -118,7 +118,7 @@ export default function Login() {
               </div>
               <div className="flex justify-between text-gray-600">
                 <span>Government:</span>
-                <span className="font-mono">admin@carbonscorex.gov</span>
+                <span className="font-mono">admin@gmail.com</span>
               </div>
             </div>
           </div>

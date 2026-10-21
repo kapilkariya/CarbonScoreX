@@ -4,7 +4,7 @@
 
 -- Insert users
 INSERT INTO users (email, password_hash, user_type, full_name) VALUES
-('admin@carbonscorex.gov', '$2b$10$uMo.xXD.NsOw7I1UpeHguOxPnzubwjmBLjLEbPdJ168rHgFBbsg0a', 'government', 'Government Admin'),
+('admin@gmail.com', '$2b$10$uMo.xXD.NsOw7I1UpeHguOxPnzubwjmBLjLEbPdJ168rHgFBbsg0a', 'government', 'Government Admin'),
 ('greentech@example.com', '$2b$10$uMo.xXD.NsOw7I1UpeHguOxPnzubwjmBLjLEbPdJ168rHgFBbsg0a', 'company', 'GreenTech Industries'),
 ('ecofactory@example.com', '$2b$10$uMo.xXD.NsOw7I1UpeHguOxPnzubwjmBLjLEbPdJ168rHgFBbsg0a', 'company', 'EcoFactory Ltd'),
 ('pollutecorp@example.com', '$2b$10$uMo.xXD.NsOw7I1UpeHguOxPnzubwjmBLjLEbPdJ168rHgFBbsg0a', 'company', 'PolluteCorp'),

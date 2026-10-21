@@ -11,6 +11,7 @@ services:
       - ./backend/migrations/002_credit_listings.sql:/docker-entrypoint-initdb.d/002_credit_listings.sql:ro
       - ./backend/migrations/003_company_recommendations.sql:/docker-entrypoint-initdb.d/003_company_recommendations.sql:ro
       - ./backend/migrations/004_recommendation_planning_details.sql:/docker-entrypoint-initdb.d/004_recommendation_planning_details.sql:ro
+      - ./backend/migrations/005_update_government_admin_email.sql:/docker-entrypoint-initdb.d/005_update_government_admin_email.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
