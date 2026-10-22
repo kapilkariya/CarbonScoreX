@@ -1,240 +1,278 @@
 // GovDashboard.jsx
 import React, { useState, useEffect, useCallback } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import api from '../services/api';
 
+/* ---------- Design Tokens (reusable) ---------- */
+const styles = {
+  bg: 'bg-[#070B14]',
+  panel: 'bg-white/[0.03] backdrop-blur-xl border border-white/[0.06]',
+  panelHover: 'hover:bg-white/[0.06] hover:border-white/[0.1]',
+  muted: 'text-slate-400',
+  subtle: 'text-slate-500',
+  gradientText: 'bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent',
+  accentGlow: 'shadow-[0_0_40px_-10px_rgba(59,130,246,0.5)]',
+};
+
+/* ---------- Helper: category styling ---------- */
+const categoryStyles = {
+  Excellent: { bg: 'bg-emerald-500/10', text: 'text-emerald-300', ring: 'ring-emerald-500/30', dot: 'bg-emerald-400' },
+  Good:      { bg: 'bg-blue-500/10',    text: 'text-blue-300',    ring: 'ring-blue-500/30',    dot: 'bg-blue-400' },
+  Fair:      { bg: 'bg-amber-500/10',   text: 'text-amber-300',   ring: 'ring-amber-500/30',   dot: 'bg-amber-400' },
+  default:   { bg: 'bg-red-500/10',     text: 'text-red-300',     ring: 'ring-red-500/30',     dot: 'bg-red-400' },
+};
+const getCategoryStyle = (c) => categoryStyles[c] ?? categoryStyles.default;
+
+const getScoreColor = (score) =>
+  score >= 80 ? 'text-emerald-300' : score >= 65 ? 'text-blue-300' : score >= 50 ? 'text-amber-300' : 'text-red-300';
+const getCreditColor = (credits) =>
+  credits >= 2000 ? 'text-emerald-300' : credits >= 1000 ? 'text-blue-300' : credits >= 500 ? 'text-amber-300' : 'text-slate-300';
+
+/* ---------- Reusable Avatar ---------- */
+const Avatar = ({ name, size = 'md' }) => {
+  const sizes = { sm: 'w-8 h-8 text-xs', md: 'w-10 h-10 text-sm' };
+  const initial = (name || '?').charAt(0).toUpperCase();
+  return (
+    <div className={`${sizes[size]} rounded-xl bg-gradient-to-br from-blue-500/80 via-indigo-500/80 to-purple-600/80 flex items-center justify-center text-white font-semibold shadow-lg shadow-blue-500/20 ring-1 ring-white/10`}>
+      {initial}
+    </div>
+  );
+};
+
+/* ---------- Reusable Stat Card ---------- */
+const StatCard = ({ label, value, accent = 'text-white', icon }) => (
+  <div className={`${styles.panel} rounded-2xl p-4 relative overflow-hidden group transition-all duration-300 ${styles.panelHover}`}>
+    <div className="absolute inset-0 bg-gradient-to-br from-white/[0.02] to-transparent pointer-events-none" />
+    <div className="flex items-start justify-between relative">
+      <div>
+        <div className="text-[11px] uppercase tracking-widest text-slate-500 font-medium">{label}</div>
+        <div className={`text-2xl font-bold mt-1.5 ${accent}`}>{value}</div>
+      </div>
+      {icon && <div className="text-slate-600 group-hover:text-slate-400 transition-colors">{icon}</div>}
+    </div>
+  </div>
+);
+
+/* ---------- Reusable Score Bars ---------- */
+const ScoreBars = ({ value, thresholds, colorClass }) => (
+  <div className="flex justify-end gap-1">
+    {thresholds.map((t, i) => (
+      <div
+        key={i}
+        className={`w-1 h-5 rounded-full transition-all ${value >= t ? `bg-current ${colorClass}` : 'bg-white/[0.06]'}`}
+      />
+    ))}
+  </div>
+);
+
+/* ===================================================================
+   GOV DASHBOARD
+   =================================================================== */
 export function GovDashboard() {
   const [loading, setLoading] = useState(true);
   const [dashboard, setDashboard] = useState(null);
-  const [distribution, setDistribution] = useState([]);
 
-  // Active tab state
   const [activeTab, setActiveTab] = useState('companies');
 
-  // Company list state
   const [companies, setCompanies] = useState([]);
   const [totalCompanies, setTotalCompanies] = useState(0);
   const [companySearch, setCompanySearch] = useState('');
   const [companySortOrder, setCompanySortOrder] = useState('desc');
   const [companiesLoading, setCompaniesLoading] = useState(false);
 
-  // Individual list state
   const [individuals, setIndividuals] = useState([]);
   const [totalIndividuals, setTotalIndividuals] = useState(0);
   const [individualSearch, setIndividualSearch] = useState('');
   const [individualSortOrder, setIndividualSortOrder] = useState('desc');
   const [individualsLoading, setIndividualsLoading] = useState(false);
 
-  useEffect(() => {
-    loadDashboard();
-  }, []);
+  useEffect(() => { loadDashboard(); }, []);
 
   const loadCompanies = useCallback(async () => {
     setCompaniesLoading(true);
     try {
       const response = await api.getAllGovCompanies({
-        search: companySearch,
-        sortOrder: companySortOrder,
-        limit: 100
+        search: companySearch, sortOrder: companySortOrder, limit: 100,
       });
       setCompanies(response.data.companies);
       setTotalCompanies(response.data.total);
-    } catch (error) {
-      console.error('Failed to load companies:', error);
-    } finally {
-      setCompaniesLoading(false);
-    }
+    } catch (e) { console.error(e); }
+    finally { setCompaniesLoading(false); }
   }, [companySearch, companySortOrder]);
 
   const loadIndividuals = useCallback(async () => {
     setIndividualsLoading(true);
     try {
       const response = await api.getAllGovIndividuals({
-        search: individualSearch,
-        sortOrder: individualSortOrder
+        search: individualSearch, sortOrder: individualSortOrder,
       });
       setIndividuals(response.data.individuals);
       setTotalIndividuals(response.data.total);
-    } catch (error) {
-      console.error('Failed to load individuals:', error);
-    } finally {
-      setIndividualsLoading(false);
-    }
+    } catch (e) { console.error(e); }
+    finally { setIndividualsLoading(false); }
   }, [individualSearch, individualSortOrder]);
 
-  useEffect(() => {
-    if (activeTab === 'companies') {
-      loadCompanies();
-    }
-  }, [activeTab, loadCompanies]);
-
-  useEffect(() => {
-    if (activeTab === 'individuals') {
-      loadIndividuals();
-    }
-  }, [activeTab, loadIndividuals]);
+  useEffect(() => { if (activeTab === 'companies') loadCompanies(); }, [activeTab, loadCompanies]);
+  useEffect(() => { if (activeTab === 'individuals') loadIndividuals(); }, [activeTab, loadIndividuals]);
 
   const loadDashboard = async () => {
     try {
-      const [dashRes, distRes] = await Promise.all([
-        api.getGovDashboard(),
-        api.getScoreDistribution()
-      ]);
+      const dashRes = await api.getGovDashboard();
       setDashboard(dashRes.data);
-      setDistribution(distRes.data.distribution);
-    } catch (error) {
-      console.error('Failed to load dashboard:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444'];
-
-  const getCategoryStyle = (category) => {
-    switch (category) {
-      case 'Excellent':
-        return { bg: 'bg-emerald-500/20', text: 'text-emerald-400', border: 'border-emerald-500/30' };
-      case 'Good':
-        return { bg: 'bg-blue-500/20', text: 'text-blue-400', border: 'border-blue-500/30' };
-      case 'Fair':
-        return { bg: 'bg-amber-500/20', text: 'text-amber-400', border: 'border-amber-500/30' };
-      default:
-        return { bg: 'bg-red-500/20', text: 'text-red-400', border: 'border-red-500/30' };
-    }
-  };
-
-  const getScoreColor = (score) => {
-    if (score >= 80) return 'text-emerald-400';
-    if (score >= 65) return 'text-blue-400';
-    if (score >= 50) return 'text-amber-400';
-    return 'text-red-400';
-  };
-
-  const getCreditColor = (credits) => {
-    if (credits >= 2000) return 'text-emerald-400';
-    if (credits >= 1000) return 'text-blue-400';
-    if (credits >= 500) return 'text-amber-400';
-    return 'text-slate-400';
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
   };
 
   if (loading) {
-    return <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-      <div className="text-xl text-gray-600">Loading dashboard...</div>
-    </div>;
+    return (
+      <div className={`min-h-screen ${styles.bg} flex items-center justify-center`}>
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 rounded-full border-2 border-white/10 border-t-blue-500 animate-spin" />
+          <div className="text-slate-400 text-sm tracking-wide">Loading dashboard…</div>
+        </div>
+      </div>
+    );
   }
 
+  const isCompanies = activeTab === 'companies';
+  const search = isCompanies ? companySearch : individualSearch;
+  const setSearch = isCompanies ? setCompanySearch : setIndividualSearch;
+  const sortOrder = isCompanies ? companySortOrder : individualSortOrder;
+  const setSortOrder = isCompanies ? setCompanySortOrder : setIndividualSortOrder;
+
   return (
-    <div className="min-h-screen bg-slate-900 flex">
+    <div className={`min-h-screen ${styles.bg} flex text-slate-200 antialiased`}>
+      {/* Ambient background */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute -top-40 -left-40 w-[500px] h-[500px] rounded-full bg-blue-500/10 blur-[120px]" />
+        <div className="absolute bottom-0 right-0 w-[500px] h-[500px] rounded-full bg-purple-500/10 blur-[120px]" />
+      </div>
+
       {/* Sidebar */}
-      <div className="w-64 bg-slate-950 border-r border-slate-800 flex flex-col">
-        {/* Sidebar Header */}
-        <div className="p-4 border-b border-slate-800">
-          <h1 className="text-xl font-bold text-white">Gov Dashboard</h1>
-          <p className="text-sm text-slate-400 mt-1">Monitor & Compliance</p>
-        </div>
-
-        {/* Navigation */}
-        <nav className="flex-1 p-3 space-y-1">
-          <button
-            onClick={() => setActiveTab('companies')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-all ${activeTab === 'companies'
-                ? 'bg-blue-600 text-white'
-                : 'text-slate-300 hover:bg-slate-800'
-              }`}
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-            </svg>
-            <span className="font-medium">Companies</span>
-            <span className={`ml-auto text-xs px-2 py-0.5 rounded-full ${activeTab === 'companies' ? 'bg-blue-500' : 'bg-slate-700'
-              }`}>
-              {totalCompanies}
-            </span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('individuals')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-all ${activeTab === 'individuals'
-                ? 'bg-blue-600 text-white'
-                : 'text-slate-300 hover:bg-slate-800'
-              }`}
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-            </svg>
-            <span className="font-medium">Individuals</span>
-            <span className={`ml-auto text-xs px-2 py-0.5 rounded-full ${activeTab === 'individuals' ? 'bg-blue-500' : 'bg-slate-700'
-              }`}>
-              {totalIndividuals}
-            </span>
-          </button>
-        </nav>
-
-        {/* Sidebar Footer Stats */}
-        <div className="p-4 border-t border-slate-800">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-slate-800/50 rounded-lg p-3">
-              <div className="text-lg font-bold text-white">{dashboard?.statistics?.average_score?.toFixed(0) || 0}</div>
-              <div className="text-xs text-slate-400">Avg Score</div>
+      <aside className="relative w-72 border-r border-white/[0.06] bg-black/30 backdrop-blur-xl flex flex-col">
+        {/* Brand */}
+        <div className="px-6 py-7 border-b border-white/[0.06]">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/30 ring-1 ring-white/10">
+              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+              </svg>
             </div>
-            <div className="bg-slate-800/50 rounded-lg p-3">
-              <div className="text-lg font-bold text-emerald-400">{dashboard?.statistics?.active_certificates || 0}</div>
-              <div className="text-xs text-slate-400">Certified</div>
+            <div>
+              <h1 className="text-white font-semibold text-lg tracking-tight">Gov Portal</h1>
+              <p className="text-[11px] uppercase tracking-widest text-slate-500">Compliance Suite</p>
             </div>
           </div>
         </div>
-      </div>
 
-      {/* Main Content */}
-      <div className="flex-1 overflow-auto">
-        {/* Header */}
-        <div className="bg-slate-800/50 border-b border-slate-700 px-6 py-4">
-          <h2 className="text-2xl font-bold text-white">
-            {activeTab === 'companies' ? 'All Companies' : 'All Individuals'}
-          </h2>
-          <p className="text-slate-400 text-sm mt-1">
-            {activeTab === 'companies'
-              ? 'View and monitor all registered companies with their carbon scores'
-              : 'View all individual users and their carbon credit balances'}
-          </p>
+        {/* Nav */}
+        <nav className="flex-1 p-3 space-y-1">
+          <p className="px-3 py-2 text-[11px] uppercase tracking-widest text-slate-600 font-semibold">Registry</p>
+          {[
+            { key: 'companies', label: 'Companies', count: totalCompanies, path: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4' },
+            { key: 'individuals', label: 'Individuals', count: totalIndividuals, path: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z' },
+          ].map((item) => {
+            const active = activeTab === item.key;
+            return (
+              <button
+                key={item.key}
+                onClick={() => setActiveTab(item.key)}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-200 ${
+                  active
+                    ? 'bg-gradient-to-r from-blue-500/20 to-indigo-500/10 text-white ring-1 ring-blue-400/30 shadow-lg shadow-blue-500/10'
+                    : 'text-slate-400 hover:text-white hover:bg-white/[0.04]'
+                }`}
+              >
+                <svg className={`w-4 h-4 ${active ? 'text-blue-400' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d={item.path} />
+                </svg>
+                <span className="font-medium">{item.label}</span>
+                <span className={`ml-auto text-[11px] px-2 py-0.5 rounded-md tabular-nums ${active ? 'bg-blue-400/20 text-blue-200' : 'bg-white/[0.04] text-slate-500'}`}>
+                  {item.count}
+                </span>
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* Footer stats */}
+        <div className="p-3 border-t border-white/[0.06]">
+          <div className="grid grid-cols-2 gap-2">
+            <StatCard
+              label="Avg Score"
+              value={dashboard?.statistics?.average_score?.toFixed(0) ?? 0}
+              accent="text-white"
+            />
+            <StatCard
+              label="Certified"
+              value={dashboard?.statistics?.active_certificates ?? 0}
+              accent="text-emerald-300"
+            />
+          </div>
         </div>
+      </aside>
 
-        {/* Search and Sort Bar */}
-        <div className="bg-slate-800 px-6 py-4 border-b border-slate-700">
+      {/* Main */}
+      <main className="relative flex-1 overflow-auto">
+        {/* Header */}
+        <header className="sticky top-0 z-10 px-8 py-6 border-b border-white/[0.06] bg-[#070B14]/70 backdrop-blur-xl">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-[11px] uppercase tracking-widest text-slate-500 font-semibold mb-1">
+                {isCompanies ? 'Company Registry' : 'Individual Registry'}
+              </div>
+              <h2 className={`text-3xl font-bold tracking-tight ${styles.gradientText}`}>
+                {isCompanies ? 'All Companies' : 'All Individuals'}
+              </h2>
+            </div>
+            <div className={`hidden md:flex items-center gap-2 px-4 py-2 rounded-xl ${styles.panel}`}>
+              <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse" />
+              <span className="text-xs text-slate-300">Live Monitoring</span>
+            </div>
+          </div>
+        </header>
+
+        {/* Search / filter bar */}
+        <div className="px-8 py-5 border-b border-white/[0.06]">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <span className="px-3 py-1 bg-slate-700 text-slate-300 text-sm rounded-full">
-                {activeTab === 'companies' ? `${totalCompanies} Companies` : `${totalIndividuals} Individuals`}
+            <div className="flex items-center gap-3">
+              <span className={`px-3 py-1.5 rounded-lg text-xs font-medium ${styles.panel}`}>
+                <span className="text-white font-semibold">
+                  {isCompanies ? totalCompanies : totalIndividuals}
+                </span>
+                <span className="text-slate-500 ml-1.5">
+                  {isCompanies ? 'companies' : 'individuals'}
+                </span>
               </span>
             </div>
 
             <div className="flex items-center gap-3">
-              {/* Search Bar */}
-              <div className="relative">
-                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="relative group">
+                <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 group-focus-within:text-blue-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
                 <input
                   type="text"
-                  placeholder={activeTab === 'companies' ? "Search companies..." : "Search individuals..."}
-                  value={activeTab === 'companies' ? companySearch : individualSearch}
-                  onChange={(e) => activeTab === 'companies' ? setCompanySearch(e.target.value) : setIndividualSearch(e.target.value)}
-                  className="pl-10 pr-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-64 transition-all"
+                  placeholder={isCompanies ? 'Search companies…' : 'Search individuals…'}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-10 pr-4 py-2.5 w-72 bg-white/[0.04] border border-white/[0.08] rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500/40 focus:bg-white/[0.06] transition-all"
                 />
               </div>
 
-              {/* Sort Dropdown */}
               <div className="relative">
                 <select
-                  value={activeTab === 'companies' ? companySortOrder : individualSortOrder}
-                  onChange={(e) => activeTab === 'companies' ? setCompanySortOrder(e.target.value) : setIndividualSortOrder(e.target.value)}
-                  className="appearance-none px-4 py-2 pr-10 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer transition-all"
+                  value={sortOrder}
+                  onChange={(e) => setSortOrder(e.target.value)}
+                  className="appearance-none pl-4 pr-10 py-2.5 bg-white/[0.04] border border-white/[0.08] rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40 cursor-pointer hover:bg-white/[0.06] transition-all"
                 >
-                  <option value="desc">{activeTab === 'companies' ? 'Score: High → Low' : 'Credits: High → Low'}</option>
-                  <option value="asc">{activeTab === 'companies' ? 'Score: Low → High' : 'Credits: Low → High'}</option>
+                  <option value="desc" className="bg-slate-900">
+                    {isCompanies ? 'Score: High → Low' : 'Credits: High → Low'}
+                  </option>
+                  <option value="asc" className="bg-slate-900">
+                    {isCompanies ? 'Score: Low → High' : 'Credits: Low → High'}
+                  </option>
                 </select>
-                <svg className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                 </svg>
               </div>
@@ -242,193 +280,207 @@ export function GovDashboard() {
           </div>
         </div>
 
-        {/* List Content */}
-        <div className="divide-y divide-slate-800">
-          {activeTab === 'companies' ? (
-            // Companies List
-            companiesLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-              </div>
-            ) : companies.length === 0 ? (
-              <div className="text-center py-12 text-slate-400">
-                No companies found {companySearch && `matching "${companySearch}"`}
-              </div>
-            ) : (
-              companies.map((company, index) => {
-                const categoryStyle = getCategoryStyle(company.score_category);
+        {/* List */}
+        <div className="px-8 py-6">
+          <div className={`${styles.panel} rounded-2xl overflow-hidden`}>
+            {/* Column headers */}
+            <div className="grid grid-cols-[48px_1fr_100px_140px_80px] gap-4 px-6 py-3.5 border-b border-white/[0.06] text-[11px] uppercase tracking-widest text-slate-500 font-semibold">
+              <div>#</div>
+              <div>{isCompanies ? 'Company' : 'Individual'}</div>
+              <div className="text-right">{isCompanies ? 'Score' : 'Credits'}</div>
+              <div className="text-right">{isCompanies ? 'Category' : 'Status'}</div>
+              <div className="text-right">Trend</div>
+            </div>
+
+            {/* Rows */}
+            {isCompanies ? (
+              companiesLoading ? <LoadingRow /> :
+              companies.length === 0 ? <EmptyState search={companySearch} type="companies" /> :
+              companies.map((c, i) => {
+                const cat = getCategoryStyle(c.score_category);
                 return (
-                  <div
-                    key={company.id}
-                    className="flex items-center px-6 py-4 hover:bg-slate-800/50 transition-colors cursor-pointer group"
-                  >
-                    <div className="w-12 text-slate-500 font-mono text-sm">
-                      {companySortOrder === 'desc' ? index + 1 : companies.length - index}.
+                  <div key={c.id} className="grid grid-cols-[48px_1fr_100px_140px_80px] gap-4 items-center px-6 py-4 border-b border-white/[0.04] last:border-0 hover:bg-white/[0.03] transition-colors cursor-pointer group">
+                    <div className="text-slate-600 font-mono text-xs tabular-nums">
+                      {String(companySortOrder === 'desc' ? i + 1 : companies.length - i).padStart(2, '0')}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-3">
-                        <span className="text-white font-medium group-hover:text-blue-400 transition-colors truncate">
-                          {company.company_name}
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-white font-medium truncate group-hover:text-blue-300 transition-colors">
+                          {c.company_name}
                         </span>
-                        {company.certificate_id && (
-                          <span className="flex items-center gap-1 text-emerald-400 text-xs">
-                            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                        {c.certificate_id && (
+                          <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20">
+                            <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20">
                               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                             </svg>
-                            Certified
+                            Verified
                           </span>
                         )}
                       </div>
-                      <div className="text-sm text-slate-500 mt-0.5">{company.industry}</div>
+                      <div className="text-xs text-slate-500 mt-0.5 truncate">{c.industry}</div>
                     </div>
-                    <div className={`w-20 text-right font-bold text-lg ${getScoreColor(company.score)}`}>
-                      {company.score}
+                    <div className={`text-right font-bold text-lg tabular-nums ${getScoreColor(c.score)}`}>
+                      {c.score}
                     </div>
-                    <div className="w-28 flex justify-end">
-                      <span className={`px-3 py-1 rounded-full text-xs font-medium border ${categoryStyle.bg} ${categoryStyle.text} ${categoryStyle.border}`}>
-                        {company.score_category}
+                    <div className="flex justify-end">
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium ring-1 ${cat.bg} ${cat.text} ${cat.ring}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${cat.dot}`} />
+                        {c.score_category}
                       </span>
                     </div>
-                    <div className="w-16 flex justify-end gap-0.5">
-                      <div className={`w-1 h-4 rounded-full ${company.score >= 25 ? 'bg-current' : 'bg-slate-700'} ${getScoreColor(company.score)}`}></div>
-                      <div className={`w-1 h-4 rounded-full ${company.score >= 50 ? 'bg-current' : 'bg-slate-700'} ${getScoreColor(company.score)}`}></div>
-                      <div className={`w-1 h-4 rounded-full ${company.score >= 75 ? 'bg-current' : 'bg-slate-700'} ${getScoreColor(company.score)}`}></div>
-                    </div>
+                    <ScoreBars value={c.score} thresholds={[25, 50, 75]} colorClass={getScoreColor(c.score)} />
                   </div>
                 );
               })
-            )
-          ) : (
-            // Individuals List
-            individualsLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-              </div>
-            ) : individuals.length === 0 ? (
-              <div className="text-center py-12 text-slate-400">
-                No individuals found {individualSearch && `matching "${individualSearch}"`}
-              </div>
             ) : (
-              individuals.map((individual, index) => {
-                const credits = parseFloat(individual.credit_balance);
+              individualsLoading ? <LoadingRow /> :
+              individuals.length === 0 ? <EmptyState search={individualSearch} type="individuals" /> :
+              individuals.map((ind, i) => {
+                const credits = parseFloat(ind.credit_balance);
                 return (
-                  <div
-                    key={individual.id}
-                    className="flex items-center px-6 py-4 hover:bg-slate-800/50 transition-colors cursor-pointer group"
-                  >
-                    <div className="w-12 text-slate-500 font-mono text-sm">
-                      {individualSortOrder === 'desc' ? index + 1 : individuals.length - index}.
+                  <div key={ind.id} className="grid grid-cols-[48px_1fr_100px_140px_80px] gap-4 items-center px-6 py-4 border-b border-white/[0.04] last:border-0 hover:bg-white/[0.03] transition-colors cursor-pointer group">
+                    <div className="text-slate-600 font-mono text-xs tabular-nums">
+                      {String(individualSortOrder === 'desc' ? i + 1 : individuals.length - i).padStart(2, '0')}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-sm font-medium">
-                          {individual.full_name?.charAt(0)?.toUpperCase() || '?'}
+                    <div className="flex items-center gap-3 min-w-0">
+                      <Avatar name={ind.full_name} size="sm" />
+                      <div className="min-w-0">
+                        <div className="text-white font-medium truncate group-hover:text-blue-300 transition-colors">
+                          {ind.full_name}
                         </div>
-                        <div>
-                          <span className="text-white font-medium group-hover:text-blue-400 transition-colors truncate block">
-                            {individual.full_name}
-                          </span>
-                          <div className="text-sm text-slate-500">{individual.email}</div>
-                        </div>
+                        <div className="text-xs text-slate-500 truncate">{ind.email}</div>
                       </div>
                     </div>
-                    <div className={`w-32 text-right font-bold text-lg ${getCreditColor(credits)}`}>
+                    <div className={`text-right font-bold text-lg tabular-nums ${getCreditColor(credits)}`}>
                       {credits.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                     </div>
-                    <div className="w-24 text-right text-slate-400 text-sm">
-                      credits
-                    </div>
-                    <div className="w-16 flex justify-end gap-0.5">
-                      <div className={`w-1 h-4 rounded-full ${credits >= 500 ? 'bg-current' : 'bg-slate-700'} ${getCreditColor(credits)}`}></div>
-                      <div className={`w-1 h-4 rounded-full ${credits >= 1500 ? 'bg-current' : 'bg-slate-700'} ${getCreditColor(credits)}`}></div>
-                      <div className={`w-1 h-4 rounded-full ${credits >= 2500 ? 'bg-current' : 'bg-slate-700'} ${getCreditColor(credits)}`}></div>
-                    </div>
+                    <div className="text-right text-xs text-slate-500">credits</div>
+                    <ScoreBars value={credits} thresholds={[500, 1500, 2500]} colorClass={getCreditColor(credits)} />
                   </div>
                 );
               })
-            )
-          )}
+            )}
+          </div>
         </div>
-      </div>
+      </main>
     </div>
   );
 }
 
-// PersonDashboard.jsx
+/* ---------- Small helper components ---------- */
+const LoadingRow = () => (
+  <div className="flex items-center justify-center py-16">
+    <div className="w-8 h-8 rounded-full border-2 border-white/10 border-t-blue-500 animate-spin" />
+  </div>
+);
+
+const EmptyState = ({ search, type }) => (
+  <div className="flex flex-col items-center justify-center py-16 text-center">
+    <div className="w-12 h-12 rounded-2xl bg-white/[0.04] flex items-center justify-center mb-3">
+      <svg className="w-6 h-6 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+      </svg>
+    </div>
+    <div className="text-slate-300 font-medium">No {type} found</div>
+    {search && <div className="text-sm text-slate-500 mt-1">No results for “{search}”</div>}
+  </div>
+);
+
+/* ===================================================================
+   PERSON DASHBOARD
+   =================================================================== */
 export function PersonDashboard() {
   const [balance, setBalance] = useState(0);
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  useEffect(() => { loadData(); }, []);
 
   const loadData = async () => {
     try {
       const [balRes, txRes] = await Promise.all([
         api.getCreditBalance(),
-        api.getTransactionHistory()
+        api.getTransactionHistory(),
       ]);
       setBalance(balRes.data.balance);
       setTransactions(txRes.data.transactions);
-    } catch (error) {
-      console.error('Failed to load data:', error);
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
   };
 
   if (loading) {
-    return <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-      <div className="text-xl text-gray-600">Loading...</div>
-    </div>;
+    return (
+      <div className={`min-h-screen ${styles.bg} flex items-center justify-center`}>
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 rounded-full border-2 border-white/10 border-t-emerald-500 animate-spin" />
+          <div className="text-slate-400 text-sm tracking-wide">Loading…</div>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 py-6">
-          <h1 className="text-3xl font-bold text-gray-900">Individual Dashboard</h1>
-          <p className="text-gray-600">Manage your carbon credits</p>
-        </div>
+    <div className={`min-h-screen ${styles.bg} text-slate-200 antialiased relative`}>
+      <div className="fixed inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute -top-40 right-0 w-[500px] h-[500px] rounded-full bg-emerald-500/10 blur-[120px]" />
+        <div className="absolute bottom-0 -left-40 w-[500px] h-[500px] rounded-full bg-blue-500/10 blur-[120px]" />
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        <div className="bg-white rounded-lg shadow p-8 mb-8">
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Your Credit Balance</h2>
-          <div className="text-5xl font-bold text-green-600">{balance.toFixed(2)}</div>
-          <p className="text-gray-600 mt-2">Available for sale to companies</p>
+      <div className="relative max-w-5xl mx-auto px-6 py-12">
+        {/* Header */}
+        <div className="mb-10">
+          <div className="text-[11px] uppercase tracking-widest text-slate-500 font-semibold mb-2">Personal Portal</div>
+          <h1 className={`text-4xl font-bold tracking-tight ${styles.gradientText}`}>Individual Dashboard</h1>
+          <p className="text-slate-400 mt-2">Manage your carbon credit portfolio</p>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-bold mb-4">Transaction History</h2>
-          <div className="overflow-x-auto">
-            <table className="min-w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Party</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {transactions.map((txn) => (
-                  <tr key={txn.id}>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      {new Date(txn.created_at).toLocaleDateString()}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">{txn.transaction_type}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">
-                      +{txn.amount}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">{txn.from_name}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        {/* Balance Card */}
+        <div className={`relative rounded-3xl p-8 mb-8 overflow-hidden ${styles.panel} ${styles.accentGlow}`}>
+          <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/10 via-transparent to-blue-500/10 pointer-events-none" />
+          <div className="relative">
+            <div className="flex items-center gap-2 text-[11px] uppercase tracking-widest text-emerald-300 font-semibold mb-3">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Available Balance
+            </div>
+            <div className="flex items-end gap-3">
+              <div className="text-6xl font-bold tracking-tight bg-gradient-to-br from-white to-slate-400 bg-clip-text text-transparent tabular-nums">
+                {balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+              </div>
+              <div className="text-slate-400 mb-3 text-sm">credits</div>
+            </div>
+            <p className="text-sm text-slate-400 mt-3">Ready for sale to registered companies</p>
           </div>
+        </div>
+
+        {/* Transactions */}
+        <div className={`${styles.panel} rounded-2xl overflow-hidden`}>
+          <div className="px-6 py-4 border-b border-white/[0.06] flex items-center justify-between">
+            <h2 className="text-white font-semibold">Transaction History</h2>
+            <span className="text-xs text-slate-500">{transactions.length} records</span>
+          </div>
+
+          {transactions.length === 0 ? (
+            <div className="py-16 text-center text-slate-500 text-sm">No transactions yet</div>
+          ) : (
+            <div className="divide-y divide-white/[0.04]">
+              {transactions.map((txn) => (
+                <div key={txn.id} className="grid grid-cols-[110px_1fr_120px_1fr] gap-4 items-center px-6 py-4 hover:bg-white/[0.02] transition-colors">
+                  <div className="text-xs text-slate-500 font-mono">
+                    {new Date(txn.created_at).toLocaleDateString(undefined, { month: 'short', day: '2-digit', year: 'numeric' })}
+                  </div>
+                  <div>
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-blue-500/10 text-blue-300 ring-1 ring-blue-500/20">
+                      {txn.transaction_type}
+                    </span>
+                  </div>
+                  <div className="text-right font-semibold text-emerald-300 tabular-nums">
+                    +{txn.amount}
+                  </div>
+                  <div className="text-sm text-slate-400 text-right truncate">{txn.from_name}</div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
